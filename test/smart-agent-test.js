@@ -555,7 +555,7 @@ async function shouldReply(msg, queuedMessages = []) {
 
 当前消息：
 发送者：${msg.sender_name}
-内容：${msg.text}`;
+内容：${msg.summary}`;
 
   try {
     // 使用 OpenAI tools 和 tool_choice 确保返回结构化JSON
