@@ -47,9 +47,8 @@ const CONFIG = {
   segmentDelayMin: parseInt(process.env.SEGMENT_DELAY_MIN || '800'),
   segmentDelayMax: parseInt(process.env.SEGMENT_DELAY_MAX || '3000'),
   
-  // 历史记录配置
-  userMessageHistoryLimit: parseInt(process.env.USER_MESSAGE_HISTORY_LIMIT || '5'),
-  botMessageHistoryLimit: parseInt(process.env.BOT_MESSAGE_HISTORY_LIMIT || '5'),
+  // 对话历史记录配置（标准多轮格式）
+  maxConversationPairs: parseInt(process.env.MAX_CONVERSATION_PAIRS || '20'),
   
   // 机器人配置
   botName: process.env.BOT_NAME || '助手',
@@ -57,9 +56,14 @@ const CONFIG = {
   
   // 智能回复判断配置
   enableSmartReply: process.env.ENABLE_SMART_REPLY === 'true',
-  messageQueueLimit: parseInt(process.env.MESSAGE_QUEUE_LIMIT || '10'),
   judgeTimeout: parseInt(process.env.JUDGE_TIMEOUT || '5000'),
   judgeModel: process.env.JUDGE_MODEL || 'gpt-4o-mini',
+  
+  // 回复欲望系统配置
+  replyDesireThreshold: parseFloat(process.env.REPLY_DESIRE_THRESHOLD || '0.6'),
+  replyDesireDecayRate: parseFloat(process.env.REPLY_DESIRE_DECAY_RATE || '0.1'),
+  replyDesireBoostPerMessage: parseFloat(process.env.REPLY_DESIRE_BOOST_PER_MESSAGE || '0.15'),
+  minReplyInterval: parseInt(process.env.MIN_REPLY_INTERVAL || '10000'),
   
   // 回复队列并发控制配置
   replyConcurrency: parseInt(process.env.REPLY_CONCURRENCY || '1'),
@@ -119,7 +123,9 @@ console.log('段落分隔符:', CONFIG.paragraphSeparator);
 console.log('机器人名称:', CONFIG.botName);
 console.log('智能回复:', CONFIG.enableSmartReply ? '开启' : '关闭');
 console.log('判断模型:', CONFIG.judgeModel);
-console.log('消息队列限制:', CONFIG.messageQueueLimit);
+console.log('回复欲望阈值:', CONFIG.replyDesireThreshold);
+console.log('最小回复间隔:', CONFIG.minReplyInterval + 'ms');
+console.log('对话历史限制:', CONFIG.maxConversationPairs + '组对话');
 console.log('回复并发数:', CONFIG.replyConcurrency);
 console.log('回复冷却时间:', CONFIG.replyCooldown + 'ms');
 console.log('失败跳过:', CONFIG.skipOnGenerationFail ? '是' : '否');
@@ -166,15 +172,274 @@ const systems = fs.readFileSync(systemPromptPath, 'utf-8');
 const text = "{{sandbox_system_prompt}}\n{{sentra_tools_rules}}\n现在时间：{{time}}\n\n平台：\n{{qq_system_prompt}}\n\n" + systems;
 const system = await SentraPromptsSDK(text);
 
-// 存储对话历史，用于智能引用之前的消息
-// key: userId (私聊) 或 group_${groupId}_${userId} (群聊)
-// value: { userMessages: [], botMessages: [] }
-const conversationHistory = new Map();
+// ==================== 对话历史管理系统（标准多轮格式） ====================
+
+/**
+ * 对话历史管理（标准user/assistant对话对格式）
+ * key: conversationId (U:userId 或 G:groupId)
+ * value: { 
+ *   conversations: [{ role: 'user'|'assistant', content: string }],
+ *   pendingMessages: [string],  // 从上次回复后累积的待回复消息
+ *   currentAssistantMessage: string,  // 当前正在构建的助手消息
+ *   lastReplyTime: timestamp,
+ *   replyDesire: 0-1
+ * }
+ */
+const conversationHistories = new Map();
+
+/**
+ * 添加待回复的消息到累积队列
+ * @param {string} conversationId - 会话ID
+ * @param {string} summary - 消息summary（已包含时间等信息）
+ */
+function addPendingMessage(conversationId, summary) {
+  if (!conversationHistories.has(conversationId)) {
+    conversationHistories.set(conversationId, {
+      conversations: [],
+      pendingMessages: [],
+      currentAssistantMessage: '',
+      lastReplyTime: 0,
+      replyDesire: 0
+    });
+  }
+  
+  const history = conversationHistories.get(conversationId);
+  history.pendingMessages.push(summary);
+  
+  console.log(`[待回复消息] ${conversationId} 累积消息，当前 ${history.pendingMessages.length} 条待回复`);
+}
+
+/**
+ * 获取并组合所有待回复消息为一个user content
+ * @param {string} conversationId - 会话ID
+ * @returns {string} 组合后的user消息内容
+ */
+function getPendingMessagesContent(conversationId) {
+  if (!conversationHistories.has(conversationId)) {
+    return '';
+  }
+  
+  const history = conversationHistories.get(conversationId);
+  if (history.pendingMessages.length === 0) {
+    return '';
+  }
+  
+  // 将所有待回复消息组合成一个content
+  return history.pendingMessages.join('\n\n');
+}
+
+/**
+ * 开始构建助手回复
+ * @param {string} conversationId - 会话ID
+ */
+function startAssistantMessage(conversationId) {
+  if (!conversationHistories.has(conversationId)) {
+    return;
+  }
+  
+  const history = conversationHistories.get(conversationId);
+  history.currentAssistantMessage = '';
+  
+  console.log(`[对话历史] ${conversationId} 开始构建助手回复`);
+}
+
+/**
+ * 追加内容到当前助手消息
+ * @param {string} conversationId - 会话ID
+ * @param {string} content - 要追加的内容
+ */
+function appendToAssistantMessage(conversationId, content) {
+  if (!conversationHistories.has(conversationId)) {
+    return;
+  }
+  
+  const history = conversationHistories.get(conversationId);
+  if (history.currentAssistantMessage) {
+    history.currentAssistantMessage += '\n' + content;
+  } else {
+    history.currentAssistantMessage = content;
+  }
+}
+
+/**
+ * 完成当前对话对，保存到历史
+ * @param {string} conversationId - 会话ID
+ */
+function finishConversationPair(conversationId) {
+  if (!conversationHistories.has(conversationId)) {
+    return;
+  }
+  
+  const history = conversationHistories.get(conversationId);
+  
+  // 组合所有待回复消息作为user content
+  const userContent = history.pendingMessages.join('\n\n');
+  
+  // 确保有用户消息和助手消息
+  if (userContent && history.currentAssistantMessage) {
+    // 添加完整的user/assistant对话对
+    history.conversations.push(
+      { role: 'user', content: userContent },
+      { role: 'assistant', content: history.currentAssistantMessage }
+    );
+    
+    // 保持最多N组对话（2N条消息）
+    const maxMessages = CONFIG.maxConversationPairs * 2;
+    while (history.conversations.length > maxMessages) {
+      history.conversations.shift();
+      history.conversations.shift();  // 删除一对
+    }
+    
+    const pairCount = history.conversations.length / 2;
+    const messageCount = history.pendingMessages.length;
+    console.log(`[对话历史] ${conversationId} 完成对话对（user包含${messageCount}条消息），当前 ${pairCount}/${CONFIG.maxConversationPairs} 组`);
+    
+    // 清空待回复消息和当前助手消息
+    history.pendingMessages = [];
+    history.currentAssistantMessage = '';
+  } else if (!userContent) {
+    console.warn(`[对话历史] ${conversationId} 没有待回复消息，跳过保存`);
+  }
+}
+
+/**
+ * 获取完整的对话历史数组（用于API请求）
+ * @param {string} conversationId - 会话ID
+ * @returns {Array} 对话历史数组 [{ role, content }, ...]
+ */
+function getConversationHistory(conversationId) {
+  if (!conversationHistories.has(conversationId)) {
+    return [];
+  }
+  
+  const history = conversationHistories.get(conversationId);
+  return [...history.conversations];  // 返回副本
+}
+
+/**
+ * 更新回复欲望值
+ * @param {string} conversationId - 会话ID
+ * @param {number} boost - 增加的欲望值
+ */
+function updateReplyDesire(conversationId, boost = CONFIG.replyDesireBoostPerMessage) {
+  if (!conversationHistories.has(conversationId)) {
+    conversationHistories.set(conversationId, {
+      conversations: [],
+      pendingMessages: [],
+      currentAssistantMessage: '',
+      lastReplyTime: 0,
+      replyDesire: 0
+    });
+  }
+  
+  const history = conversationHistories.get(conversationId);
+  const now = Date.now();
+  
+  // 基于时间的自然衰减
+  if (history.lastReplyTime > 0) {
+    const timeSinceReply = now - history.lastReplyTime;
+    const decayFactor = Math.min(1, timeSinceReply / 60000); // 1分钟内线性衰减
+    history.replyDesire = Math.max(0, history.replyDesire - CONFIG.replyDesireDecayRate * decayFactor);
+  }
+  
+  // 增加欲望值
+  history.replyDesire = Math.min(1, history.replyDesire + boost);
+  
+  console.log(`[回复欲望] ${conversationId} 当前欲望值: ${(history.replyDesire * 100).toFixed(1)}% (阈值: ${(CONFIG.replyDesireThreshold * 100).toFixed(0)}%)`);
+  
+  return history.replyDesire;
+}
+
+/**
+ * 重置回复欲望值（回复后调用）
+ * @param {string} conversationId - 会话ID
+ */
+function resetReplyDesire(conversationId) {
+  if (conversationHistories.has(conversationId)) {
+    const history = conversationHistories.get(conversationId);
+    history.replyDesire = 0;
+    history.lastReplyTime = Date.now();
+    console.log(`[回复欲望] ${conversationId} 已重置`);
+  }
+}
+
+/**
+ * 检查是否超过最小回复间隔
+ * @param {string} conversationId - 会话ID
+ * @returns {boolean} 是否可以回复
+ */
+function canReplyByInterval(conversationId) {
+  if (!conversationHistories.has(conversationId)) {
+    return true;
+  }
+  
+  const history = conversationHistories.get(conversationId);
+  if (history.lastReplyTime === 0) {
+    return true;
+  }
+  
+  const timeSinceReply = Date.now() - history.lastReplyTime;
+  const canReply = timeSinceReply >= CONFIG.minReplyInterval;
+  
+  if (!canReply) {
+    const remaining = CONFIG.minReplyInterval - timeSinceReply;
+    console.log(`[回复间隔] ${conversationId} 距离上次回复 ${(timeSinceReply / 1000).toFixed(1)}秒，还需等待 ${(remaining / 1000).toFixed(1)}秒`);
+  }
+  
+  return canReply;
+}
 
 // 消息队列管理（用于智能回复判断）
 // key: conversationId (U:userId 或 G:groupId)
 // value: { messages: [], lastProcessTime: timestamp }
 const messageQueues = new Map();
+
+// ==================== 回复去重管理（防止同时回复同一人） ====================
+
+/**
+ * 正在回复的发送者集合
+ * key: conversationId (G:groupId 或 U:userId)
+ * value: Set<sender_id> 正在回复的发送者ID集合
+ */
+const replyingSenders = new Map();
+
+/**
+ * 检查是否正在回复该发送者
+ * @param {string} conversationId - 会话ID
+ * @param {string} senderId - 发送者ID
+ * @returns {boolean} 是否正在回复
+ */
+function isReplyingToSender(conversationId, senderId) {
+  if (!replyingSenders.has(conversationId)) {
+    return false;
+  }
+  return replyingSenders.get(conversationId).has(senderId);
+}
+
+/**
+ * 标记开始回复某个发送者
+ * @param {string} conversationId - 会话ID
+ * @param {string} senderId - 发送者ID
+ */
+function markReplyingToSender(conversationId, senderId) {
+  if (!replyingSenders.has(conversationId)) {
+    replyingSenders.set(conversationId, new Set());
+  }
+  replyingSenders.get(conversationId).add(senderId);
+  console.log(`[回复去重] ${conversationId} 开始回复发送者 ${senderId}`);
+}
+
+/**
+ * 标记完成回复某个发送者
+ * @param {string} conversationId - 会话ID
+ * @param {string} senderId - 发送者ID
+ */
+function unmarkReplyingToSender(conversationId, senderId) {
+  if (replyingSenders.has(conversationId)) {
+    replyingSenders.get(conversationId).delete(senderId);
+    console.log(`[回复去重] ${conversationId} 完成回复发送者 ${senderId}`);
+  }
+}
 
 // ==================== 消息合并定时器管理 ====================
 
@@ -552,56 +817,54 @@ function getAndClearQueue(conversationId) {
 }
 
 /**
- * 智能判断是否需要回复
+ * 智能判断是否需要回复（新系统：使用回复欲望机制）
  * @param {Object} msg - 当前消息对象
- * @param {Array} queuedMessages - 队列中的历史消息
- * @returns {Promise<boolean>} 是否需要回复
+ * @param {string} conversationId - 会话ID
+ * @returns {Promise<{needReply: boolean, reason: string, mandatory: boolean}>} 判断结果
  */
-async function shouldReply(msg, queuedMessages = []) {
+async function shouldReply(msg, conversationId) {
   // 如果禁用智能回复，总是回复
   if (!CONFIG.enableSmartReply) {
-    return true;
+    return { needReply: true, reason: '智能回复已禁用', mandatory: false };
   }
   
   // 私聊默认总是回复
   if (msg.type === 'private') {
-    console.log('[智能判断] 私聊消息，默认回复');
-    return true;
+    console.log('[智能判断] 私聊消息，必须回复');
+    return { needReply: true, reason: '私聊消息', mandatory: true };
   }
   
-  // 如果@了机器人或提到机器人名称，必须回复
-  const mentionedBot = msg.at_users?.some(at => at.qq === msg.self_id) ||
-                       msg.text?.includes(CONFIG.botName) ||
-                       CONFIG.botAliases.some(alias => msg.text?.includes(alias));
+  // ===== 强制回复条件：明确@了机器人 =====
+  const isExplicitMention = msg.at_users?.some(at => at === msg.self_id);
   
-  if (mentionedBot) {
-    console.log('[智能判断] 消息中提到机器人，必须回复');
-    return true;
+  if (isExplicitMention) {
+    console.log('[智能判断] ✓ 明确@机器人，必须回复');
+    return { needReply: true, reason: '被明确@提及', mandatory: true };
+  }
+  
+  // ===== 检查回复间隔 =====
+  if (!canReplyByInterval(conversationId)) {
+    console.log('[智能判断] ✗ 回复间隔不足，跳过本次判断');
+    // 更新欲望值但不回复
+    updateReplyDesire(conversationId);
+    return { needReply: false, reason: '回复间隔不足', mandatory: false };
   }
 
-  // 构建判断提示词
-  const botNames = [CONFIG.botName, ...CONFIG.botAliases].join('、');
-  const recentMessages = queuedMessages.slice(-5);
-  const historyContext = recentMessages.length > 0
-    ? `\n\n最近的对话历史：\n${recentMessages.map((m, i) => `${i + 1}. [${m.time_str}] ${m.sender_name}: ${m.text}`).join('\n')}`
-    : '';
-
+  // ===== 使用AI判断是否需要回复 =====
   const judgePrompt = `你是群聊机器人"${CONFIG.botName}"。请判断以下消息是否需要你回复。
 
 判断标准：
-1. 如果消息明确提到你的名字（${botNames}）或@你，需要回复
-2. 如果消息是向你提问、求助或需要你的参与，需要回复
-3. 如果消息是闲聊内容且与你相关，可以适当参与
-4. 如果消息是群友之间的对话，与你无关，不需要回复
-5. 如果消息内容简短且无意义（如单个表情、"。"等），不需要回复
-6. 结合对话历史判断，如果讨论的话题你之前参与过，可以适当回复${historyContext}
+1. 如果消息是向你提问、求助或需要你的参与，需要回复
+2. 如果消息是闲聊内容且与你高度相关，可以适当参与
+3. 如果消息是群友之间的对话，与你无关，不需要回复
+4. 如果消息内容简短且无意义（如单个表情、"。"等），不需要回复
+5. 结合最近对话判断是否需要回复
 
 当前消息：
 发送者：${msg.sender_name}
-内容：${msg.summary}`;
+内容：${msg.text || msg.summary}`;
 
   try {
-    // 使用 OpenAI tools 和 tool_choice 确保返回结构化JSON
     const judgeResponse = await agent.chat(
       [
         { role: 'system', content: '你是一个专业的对话判断助手，负责判断机器人是否需要回复群聊消息。' },
@@ -621,15 +884,15 @@ async function shouldReply(msg, queuedMessages = []) {
               properties: {
                 should_reply: {
                   type: "boolean",
-                  description: "是否需要回复，true表示需要回复，false表示不需要回复"
+                  description: "是否需要回复"
                 },
                 reason: {
                   type: "string",
-                  description: "判断的详细理由，说明为什么需要或不需要回复"
+                  description: "判断的详细理由"
                 },
                 confidence: {
                   type: "number",
-                  description: "判断的置信度，范围0.0-1.0，越高表示越确定",
+                  description: "判断的置信度，范围0.0-1.0",
                   minimum: 0,
                   maximum: 1
                 }
@@ -645,26 +908,46 @@ async function shouldReply(msg, queuedMessages = []) {
       }
     );
     
-    // agent.chat 使用 tools 时会自动返回解析好的JSON对象
     if (!judgeResponse || typeof judgeResponse.should_reply === 'undefined') {
-      console.warn('[智能判断] 无效的判断结果，默认需要回复');
-      console.warn('[智能判断] 原始响应:', judgeResponse);
-      return true;
+      console.warn('[智能判断] 无效的判断结果，默认不回复');
+      return { needReply: false, reason: '判断失败', mandatory: false };
     }
     
-    const shouldReplyResult = judgeResponse.should_reply !== false;
+    const aiSaysReply = judgeResponse.should_reply !== false;
     const reason = judgeResponse.reason || '未知原因';
     const confidence = judgeResponse.confidence || 0.5;
     
-    console.log(`[智能判断] 结果: ${shouldReplyResult ? '需要回复' : '不需要回复'}`);
+    console.log(`[智能判断] AI判断: ${aiSaysReply ? '需要回复' : '不需要回复'}`);
     console.log(`[智能判断] 理由: ${reason}`);
     console.log(`[智能判断] 置信度: ${(confidence * 100).toFixed(1)}%`);
     
-    return shouldReplyResult;
+    // ===== 回复欲望系统 =====
+    // AI判断需要回复时，给予更大的欲望增量
+    const desireBoost = aiSaysReply 
+      ? CONFIG.replyDesireBoostPerMessage * 1.5 
+      : CONFIG.replyDesireBoostPerMessage * 0.5;
+    
+    const currentDesire = updateReplyDesire(conversationId, desireBoost);
+    
+    // 判断是否达到回复阈值
+    const reachedThreshold = currentDesire >= CONFIG.replyDesireThreshold;
+    
+    if (aiSaysReply && reachedThreshold) {
+      console.log(`[智能判断] ✓ AI建议回复 且 欲望值达标，决定回复`);
+      return { needReply: true, reason: `AI建议回复(${reason})，欲望值达标`, mandatory: false };
+    } else if (aiSaysReply && !reachedThreshold) {
+      console.log(`[智能判断] ~ AI建议回复 但 欲望值不足，暂不回复`);
+      return { needReply: false, reason: `AI建议回复但欲望值不足(${(currentDesire * 100).toFixed(1)}%)`, mandatory: false };
+    } else {
+      console.log(`[智能判断] ✗ AI不建议回复，累积欲望值`);
+      return { needReply: false, reason: `AI不建议回复(${reason})`, mandatory: false };
+    }
     
   } catch (error) {
-    console.error('[智能判断] 判断失败，默认需要回复:', error.message);
-    return true;
+    console.error('[智能判断] 判断失败:', error.message);
+    // 失败时也更新欲望值
+    updateReplyDesire(conversationId, CONFIG.replyDesireBoostPerMessage * 0.3);
+    return { needReply: false, reason: '判断异常', mandatory: false };
   }
 }
 
@@ -965,50 +1248,7 @@ function getReplyableMessageId(msg) {
   return msg.message_id || null;
 }
 
-/**
- * 更新对话历史记录
- * @param {Object} msg - 消息对象
- * @param {number|null} messageId - 消息 ID
- * @param {boolean} isBot - 是否为机器人消息
- */
-function updateConversationHistory(msg, messageId = null, isBot = false) {
-  const conversationKey = msg.type === 'private' 
-    ? msg.sender_id 
-    : `group_${msg.group_id}_${msg.sender_id}`;
-  
-  if (!conversationHistory.has(conversationKey)) {
-    conversationHistory.set(conversationKey, { 
-      userMessages: [], 
-      botMessages: [] 
-    });
-  }
-  
-  const history = conversationHistory.get(conversationKey);
-  
-  if (isBot && messageId) {
-    // 记录机器人消息
-    history.botMessages.push({ 
-      message_id: messageId, 
-      timestamp: Date.now() 
-    });
-    
-    // 只保留配置的最近N条
-    if (history.botMessages.length > CONFIG.botMessageHistoryLimit) {
-      history.botMessages.shift();
-    }
-  } else {
-    // 记录用户消息
-    history.userMessages.push({ 
-      message_id: msg.message_id, 
-      timestamp: Date.now() 
-    });
-    
-    // 只保留配置的最近N条
-    if (history.userMessages.length > CONFIG.userMessageHistoryLimit) {
-      history.userMessages.shift();
-    }
-  }
-}
+// 旧的历史记录函数已移除，使用新的 addToConversationHistory() 替代
 
 /**
  * 发送消息并等待结果
@@ -1061,9 +1301,6 @@ async function smartSend(msg, response) {
     console.log('没有内容需要发送');
     return;
   }
-  
-  // 更新用户消息历史
-  updateConversationHistory(msg);
   
   // 判断聊天类型
   const isPrivateChat = msg.type === 'private';
@@ -1167,9 +1404,7 @@ async function smartSend(msg, response) {
         }
       }
       
-      // 更新机器人消息历史
       if (sentMessageId) {
-        updateConversationHistory(msg, sentMessageId, true);
         console.log(`片段 ${i + 1} 发送成功，消息ID: ${sentMessageId}`);
       }
     }
@@ -1229,42 +1464,40 @@ ws.on('message', async (data) => {
       
       // 获取会话ID
       const conversationId = getConversationId(msg);
+      const isGroupChat = msg.type === 'group';
       
-      // 立即记录到全局历史
+      // 累积待回复消息（使用summary，已包含时间信息）
+      addPendingMessage(conversationId, msg.summary);
+      
+      // 也记录到全局历史（用于system prompt）
       addToGlobalHistory(conversationId, msg, false);
       
       // 使用消息合并机制
       addMessageForMerge(conversationId, msg, async (mergedMessages) => {
         try {
-          // 合并后的消息作为一个整体处理
           console.log(`\n=== 处理合并后的消息（共${mergedMessages.length}条）===`);
-          
-          // 添加所有合并的消息到队列
-          mergedMessages.forEach(m => addMessageToQueue(conversationId, m));
-          
-          // 获取当前队列中的所有消息
-          const queue = messageQueues.get(conversationId);
-          const queuedMessages = [...queue.messages];
-          
-          // 检查是否达到强制回复阈值
-          const shouldForceReply = queuedMessages.length >= CONFIG.messageQueueLimit;
-          
-          if (shouldForceReply) {
-            console.log(`[强制回复] 队列已达到上限 ${CONFIG.messageQueueLimit} 条，强制处理`);
-          }
           
           // 使用最后一条合并消息进行智能判断
           const lastMsg = mergedMessages[mergedMessages.length - 1];
-          const needReply = shouldForceReply || await shouldReply(lastMsg, queuedMessages.slice(0, -mergedMessages.length));
+          const senderId = lastMsg.sender_id;
           
-          if (!needReply) {
-            console.log('[跳过回复] 判断不需要回复，消息已加入队列');
+          const replyDecision = await shouldReply(lastMsg, conversationId);
+          
+          if (!replyDecision.needReply) {
+            console.log(`[跳过回复] ${replyDecision.reason}`);
             return;
           }
           
-          console.log('[开始处理] 需要回复此消息');
+          // 检查是否正在回复该发送者（防止重复回复）
+          if (isReplyingToSender(conversationId, senderId)) {
+            console.log(`[回复去重] 已有任务正在回复发送者 ${senderId}，本次静默保存（不发送消息）`);
+            await processReply(conversationId, mergedMessages, lastMsg, isGroupChat, senderId, true); // silentMode = true
+            return;
+          }
           
-          await processReply(conversationId, mergedMessages, lastMsg);
+          console.log(`[开始处理] ${replyDecision.reason}${replyDecision.mandatory ? '（强制）' : ''}`);
+          
+          await processReply(conversationId, mergedMessages, lastMsg, isGroupChat, senderId, false); // silentMode = false
         } catch (error) {
           console.error('[消息合并处理] 错误:', error);
         }
@@ -1278,80 +1511,68 @@ ws.on('message', async (data) => {
 });
 
 /**
- * 处理回复逻辑（提取为独立函数）
+ * 处理回复逻辑（标准多轮对话格式）
  * @param {string} conversationId - 会话ID  
  * @param {Array} mergedMessages - 合并的消息数组
  * @param {Object} lastMsg - 最后一条消息
+ * @param {boolean} isGroupChat - 是否为群聊
+ * @param {string} senderId - 发送者ID
+ * @param {boolean} silentMode - 静默模式（只保存历史，不发送消息）
  */
-async function processReply(conversationId, mergedMessages, lastMsg) {
+async function processReply(conversationId, mergedMessages, lastMsg, isGroupChat, senderId, silentMode = false) {
   // 将回复任务添加到并发控制队列
   await replyQueueManager.addTask(async () => {
     try {
-      // 获取并清空队列（仅保留未过期的消息）
-      const allMessages = getAndClearQueue(conversationId);
-      
-      // 如果所有消息都已过期，跳过本次回复
-      if (allMessages.length === 0) {
-        console.warn('[队列处理] 所有消息已过期，跳过本次回复');
+      // 静默模式：直接保存对话对，不发送消息
+      if (silentMode) {
+        console.log(`[静默处理] ${conversationId} 发送者 ${senderId} - 只保存历史，不发送消息`);
+        
+        // 构建一个虚拟的助手回复
+        startAssistantMessage(conversationId);
+        appendToAssistantMessage(conversationId, '[已被其他回复任务覆盖，未实际发送]');
+        finishConversationPair(conversationId);
+        
+        console.log(`[静默处理] ${conversationId} 完成保存`);
         return;
       }
       
-      // 构建输入内容 - 考虑合并的消息
-      let userInput;
-      if (mergedMessages.length > 1) {
-        // 多条合并消息
-        const mergedText = mergedMessages.map(m =>
-          `[${m.time_str}] ${m.sender_name}: ${m.text}`
-        ).join('\n');
-        
-        if (allMessages.length > mergedMessages.length) {
-          // 有更早的历史消息
-          const historyMessages = allMessages.slice(0, -mergedMessages.length);
-          const historyText = historyMessages.map(m => 
-            `[${m.time_str}] ${m.sender_name}: ${m.text}`
-          ).join('\n');
-          
-          userInput = `【对话历史】\n${historyText}\n\n【当前消息（用户连发${mergedMessages.length}条）】\n${mergedText}`;
-          console.log(`[上下文] 包含 ${historyMessages.length} 条历史 + ${mergedMessages.length} 条合并消息`);
-        } else {
-          // 只有合并消息
-          userInput = `【当前消息（用户连发${mergedMessages.length}条）】\n${mergedText}`;
-          console.log(`[上下文] ${mergedMessages.length} 条合并消息`);
-        }
-      } else if (allMessages.length > 1) {
-        // 单条消息但有历史
-        const historyMessages = allMessages.slice(0, -1);
-        const currentMessage = allMessages[allMessages.length - 1];
-        
-        const historyText = historyMessages.map(m => 
-          `[${m.time_str}] ${m.sender_name}: ${m.text}`
-        ).join('\n');
-        
-        userInput = `【对话历史】\n${historyText}\n\n【当前消息】\n[${currentMessage.time_str}] ${currentMessage.sender_name}: ${currentMessage.text}`;
-        console.log(`[上下文] 包含 ${historyMessages.length} 条历史消息`);
-      } else {
-        // 只有当前消息
-        userInput = lastMsg?.summary;
+      // 标记开始回复该发送者
+      markReplyingToSender(conversationId, senderId);
+      
+      // 开始构建助手回复
+      startAssistantMessage(conversationId);
+      
+      // 获取历史对话对（最多20组）
+      const historyConversations = getConversationHistory(conversationId);
+      const pairCount = historyConversations.length / 2;
+      console.log(`[对话历史] 加载 ${pairCount} 组历史对话`);
+      
+      // 获取从上次回复后累积的所有待回复消息
+      const pendingMessagesContent = getPendingMessagesContent(conversationId);
+      if (!pendingMessagesContent) {
+        console.warn('[对话构建] 没有待回复消息，跳过回复');
+        unmarkReplyingToSender(conversationId, senderId);
+        return;
       }
       
-      const conversation = [
-        { role: 'user', content: userInput },
-      ];
-
-      // 构建system prompt - 添加全局历史记录和工具任务历史
+      // 构建system prompt
       const globalHistoryText = getGlobalHistoryText(conversationId);
       const toolSummaryText = getToolSummaryText(conversationId);
-      const systemWithHistory = system + globalHistoryText + toolSummaryText;
+      const chatType = isGroupChat ? '群聊' : '私聊';
       
-      if (globalHistoryText) {
-        console.log(`[全局历史] 已添加到system prompt`);
-      }
-      if (toolSummaryText) {
-        console.log(`[工具历史] 已添加到system prompt`);
-      }
-
-      // 构建完整的对话上下文
-      let conversations = [{ role: 'system', content: systemWithHistory }];
+      const systemPrompt = system + globalHistoryText + toolSummaryText + 
+        `\n\n【重要提示】你正在参与${chatType}对话，请结合历史对话记录理解上下文，保持回复连贯性，避免重复回答。`;
+      
+      // 构建完整的对话上下文：system + 历史对话对 + 当前累积的用户消息
+      let conversations = [
+        { role: 'system', content: systemPrompt },
+        ...historyConversations,  // 历史对话对（最多20组）
+        { role: 'user', content: pendingMessagesContent }  // 当前累积的所有待回复消息
+      ];
+      
+      const history = conversationHistories.get(conversationId);
+      const pendingCount = history.pendingMessages.length;
+      console.log(`[对话构建] system(1) + 历史对话(${historyConversations.length}) + 当前累积消息(${pendingCount}条) = 总共${conversations.length}条`);
           
           // 使用配置的阶段提示词叠加
           const overlays = {
@@ -1372,7 +1593,7 @@ async function processReply(conversationId, mergedMessages, lastMsg) {
           // 使用 Sentra SDK 流式处理
           for await (const ev of sdk.stream({
             objective: '根据对话完成用户请求',
-            conversation,
+            conversation: conversations,
             overlays
           })) {
             console.log(ev);
@@ -1381,13 +1602,13 @@ async function processReply(conversationId, mergedMessages, lastMsg) {
             if (ev.type === 'judge') {
               if (!ev.need) {
                 console.log('[工具判断] 不需要工具调用，直接生成回复');
-                // 不需要工具，直接生成普通回复
-                conversations.push({ role: 'user', content: userInput });
+                // 不需要工具，直接生成普通回复（conversations已包含完整历史）
                 const response = await agent.chat(conversations, CONFIG.modelName);
                 
                 // 检查AI生成是否失败
                 if (response === null) {
                   console.warn('[AI生成] 生成失败，跳过本次回复（拟人行为）');
+                  unmarkReplyingToSender(conversationId, senderId);
                   return; // 跳过本次回复
                 }
                 
@@ -1396,8 +1617,20 @@ async function processReply(conversationId, mergedMessages, lastMsg) {
                 
                 await smartSend(lastMsg, response);
                 
-                // 记录机器人回复到全局历史
+                // 设置助手消息内容（普通对话直接使用response）
+                appendToAssistantMessage(conversationId, response);
+                
+                // 完成对话对，保存到历史
+                finishConversationPair(conversationId);
+                
+                // 记录到全局历史（用于system prompt）
                 addToGlobalHistory(conversationId, { summary: response, text: response, sender_name: CONFIG.botName }, true);
+                
+                // 重置回复欲望值
+                resetReplyDesire(conversationId);
+                
+                // 清除发送者标记
+                unmarkReplyingToSender(conversationId, senderId);
                 
                 return;
               } else {
@@ -1413,9 +1646,10 @@ async function processReply(conversationId, mergedMessages, lastMsg) {
             
             // 工具调用结果处理
             if (ev.type === 'tool_result' || ev.type === 'tool_choice') {
+              // 添加工具结果到对话历史
               conversations.push({ 
                 role: 'user', 
-                content: `${JSON.stringify(ev)}\n\n${userInput}` 
+                content: `工具执行结果：${JSON.stringify(ev)}` 
               });
               
               // 调用 AI 生成最终回复（使用配置的模型）
@@ -1424,16 +1658,20 @@ async function processReply(conversationId, mergedMessages, lastMsg) {
               // 检查AI生成是否失败
               if (response === null) {
                 console.warn('[AI生成] 生成失败，跳过本次回复（拟人行为）');
+                unmarkReplyingToSender(conversationId, senderId);
                 return; // 跳过本次回复
               }
               
-              console.log('\n=== AI 回复（工具） ===');
+              console.log('\n=== AI 回复（工具步骤） ===');
               console.log(response);
               
               // 使用智能发送（严格按照 AI 回复顺序）
               await smartSend(lastMsg, response);
               
-              // 记录机器人回复到全局历史
+              // 追加工具步骤结果到助手消息（逐步拼接）
+              appendToAssistantMessage(conversationId, response);
+              
+              // 记录到全局历史（用于system prompt）
               addToGlobalHistory(conversationId, { summary: response, text: response, sender_name: CONFIG.botName }, true);
               
               conversations.push({ role: 'assistant', content: response });
@@ -1442,6 +1680,15 @@ async function processReply(conversationId, mergedMessages, lastMsg) {
             // 对话总结
             if (ev.type === 'summary') {
               console.log('对话总结:', ev.summary);
+              
+              // 工具调用结束，完成对话对
+              finishConversationPair(conversationId);
+              
+              // 重置回复欲望值
+              resetReplyDesire(conversationId);
+              
+              // 清除发送者标记
+              unmarkReplyingToSender(conversationId, senderId);
               
               // 记录工具任务总结到历史
               if (ev.summary) {
@@ -1453,6 +1700,12 @@ async function processReply(conversationId, mergedMessages, lastMsg) {
           }
         } catch (error) {
           console.error('[回复任务] 处理失败:', error);
+          
+          // 清除发送者标记（错误处理）
+          if (!silentMode) {
+            unmarkReplyingToSender(conversationId, senderId);
+          }
+          
           // 如果配置了跳过失败，不抛出错误
           if (CONFIG.skipOnGenerationFail) {
             console.warn('[回复任务] 跳过失败的回复任务（拟人行为）');
