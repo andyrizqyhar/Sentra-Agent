@@ -52,7 +52,7 @@ async function generateSingleNativePlan({ messages, tools, allowedAiNames, tempe
   });
   const call = res.choices?.[0]?.message?.tool_calls?.[0];
   let parsed; try { parsed = call?.function?.arguments ? JSON.parse(call.function.arguments) : {}; } catch { parsed = {}; }
-  let steps = Array.isArray(parsed?.plan?.steps) ? parsed.plan.steps.map((s) => ({
+  let rawSteps = Array.isArray(parsed?.plan?.steps) ? parsed.plan.steps.map((s) => ({
     aiName: s?.aiName,
     reason: s?.reason || '',
     nextStep: s?.nextStep || '',
@@ -61,8 +61,9 @@ async function generateSingleNativePlan({ messages, tools, allowedAiNames, tempe
   })) : [];
   // 过滤未知工具
   const validNames = new Set(allowedAiNames || []);
-  steps = (validNames.size ? steps.filter((s) => s.aiName && validNames.has(s.aiName)) : steps);
-  return { steps };
+  const steps = (validNames.size ? rawSteps.filter((s) => s.aiName && validNames.has(s.aiName)) : rawSteps);
+  const removedUnknown = steps.length < rawSteps.length;
+  return { steps, removedUnknown, parsed };
 }
 
 // 候选计划审核与选择（使用 reasoner 模型 + JSON 提示）
@@ -135,6 +136,8 @@ async function selectBestNativePlan({ objective, manifest, candidates, context }
 
 export async function generatePlan(objective, mcpcore, context = {}, conversation) {
   const strategy = String(config.llm?.toolStrategy || 'auto');
+  let removedUnknown = false;
+  let parsed;
   if (strategy === 'fc') {
     return generatePlanViaFC(objective, mcpcore, context, conversation);
   }
@@ -163,6 +166,7 @@ export async function generatePlan(objective, mcpcore, context = {}, conversatio
 
   // 枚举合法 aiName，限制模型只能选择清单内工具（此时 manifest 已是 Top-N）
   const allowedAiNames = (manifest || []).map((m) => m.aiName).filter(Boolean);
+  const validNames = new Set(allowedAiNames || []);
 
   // force LLM to emit a plan via function call (schema/tool loaded from JSON via loader)
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -232,12 +236,18 @@ export async function generatePlan(objective, mcpcore, context = {}, conversatio
       // 回退到单次生成
       const one = await generateSingleNativePlan({ messages: baseMessages, tools, allowedAiNames, temperature: Math.max(0.1, (config.llm.temperature ?? 0.2) - 0.1) });
       steps = one.steps || [];
+      removedUnknown = !!one.removedUnknown;
+      parsed = one.parsed;
     } else if (candidates.length === 1) {
       steps = candidates[0].steps || [];
+      removedUnknown = !!candidates[0].removedUnknown;
+      parsed = candidates[0].parsed;
     } else {
       const pick = await selectBestNativePlan({ objective, manifest, candidates, context });
       const idx = Math.max(0, Math.min(candidates.length - 1, Number(pick.index) || 0));
       steps = candidates[idx].steps || [];
+      removedUnknown = !!candidates[idx].removedUnknown;
+      parsed = candidates[idx].parsed;
       if (config.flags.enableVerboseSteps) {
         logger.info('Native 多计划：选择候选', { label: 'PLAN', index: idx, audit: clip(String(pick.audit || ''), 360) });
       }
@@ -251,6 +261,8 @@ export async function generatePlan(objective, mcpcore, context = {}, conversatio
     // 原有单计划路径
     const one = await generateSingleNativePlan({ messages: baseMessages, tools, allowedAiNames, temperature: Math.max(0.1, (config.llm.temperature ?? 0.2) - 0.1) });
     steps = one.steps || [];
+    removedUnknown = !!one.removedUnknown;
+    parsed = one.parsed;
   }
   // Auto fallback to function_call planning when native tool-call produced empty plan
   if (strategy === 'auto' && steps.length === 0) {
