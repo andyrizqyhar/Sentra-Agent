@@ -190,7 +190,7 @@ function App() {
       return;
     }
     try {
-      const response = await fetch('http://localhost:7245/api/scripts/bootstrap', {
+      const response = await fetch('/api/scripts/bootstrap', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ args: [] }),
@@ -227,7 +227,7 @@ function App() {
       return;
     }
     try {
-      const response = await fetch('http://localhost:7245/api/scripts/start', {
+      const response = await fetch('/api/scripts/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ args: [] }),
@@ -264,7 +264,7 @@ function App() {
       return;
     }
     try {
-      const response = await fetch('http://localhost:7245/api/scripts/napcat', {
+      const response = await fetch('/api/scripts/napcat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ args: ['build'] }),
@@ -301,7 +301,7 @@ function App() {
       return;
     }
     try {
-      const response = await fetch('http://localhost:7245/api/scripts/napcat', {
+      const response = await fetch('/api/scripts/napcat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ args: ['start'] }),
@@ -332,7 +332,7 @@ function App() {
     const terminal = terminalWindows.find(t => t.id === id);
     if (terminal) {
       try {
-        await fetch(`http://localhost:7245/api/scripts/kill/${terminal.processId}`, { method: 'POST' });
+        await fetch(`/api/scripts/kill/${terminal.processId}`, { method: 'POST' });
       } catch (e) {
         console.error('Failed to kill process on close', e);
       }

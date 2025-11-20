@@ -22,7 +22,7 @@ export const TerminalWindow: React.FC<TerminalWindowProps> = ({
     const [autoScroll, setAutoScroll] = useState(true);
 
     useEffect(() => {
-        const eventSource = new EventSource(`http://localhost:7245/api/scripts/stream/${processId}`);
+        const eventSource = new EventSource(`/api/scripts/stream/${processId}`);
 
         eventSource.onmessage = (event) => {
             const data = JSON.parse(event.data);

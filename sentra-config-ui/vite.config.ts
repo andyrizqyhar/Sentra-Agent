@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [react()],
     server: {
+      host: true,
       port: clientPort,
       proxy: {
         '/api': {
@@ -16,6 +17,9 @@ export default defineConfig(({ mode }) => {
           changeOrigin: true,
         },
       },
+    },
+    preview: {
+      host: true,
     },
     build: {
       outDir: 'dist',

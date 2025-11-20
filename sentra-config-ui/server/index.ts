@@ -20,7 +20,11 @@ async function start() {
 
   // 注册 CORS
   await fastify.register(cors, {
-    origin: CORS_ORIGIN === '*' ? true : CORS_ORIGIN,
+    origin: (() => {
+      if (CORS_ORIGIN === '*') return true;
+      const parts = CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean);
+      return parts.length > 1 ? parts : parts[0] || false;
+    })(),
   });
 
   // 注册路由
