@@ -9,6 +9,7 @@ const ROOT_DIR = resolve(process.cwd(), '..');
 const MODULES = [
   'sentra-prompts',
   'sentra-mcp',
+  'sentra-rag',
   'sentra-emo',
   'sentra-adapter/napcat',
 ];

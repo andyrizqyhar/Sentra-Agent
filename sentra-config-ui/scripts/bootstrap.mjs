@@ -43,9 +43,9 @@ function commandExists(cmd, checkArgs = ['--version']) {
   }
 }
 
-function run(cmd, args, cwd) {
+function run(cmd, args, cwd, extraEnv) {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { cwd, stdio: 'inherit', shell: true });
+    const p = spawn(cmd, args, { cwd, stdio: 'inherit', shell: true, env: { ...process.env, ...(extraEnv || {}) } });
     p.on('close', (code) => {
       if (code === 0) resolve();
       else reject(new Error(`${cmd} ${args.join(' ')} exited with code ${code}`));
@@ -66,6 +66,23 @@ function listSentraSubdirs(root) {
     }
   }
   return out;
+}
+
+function listNestedNodeProjects(dir) {
+  // Find immediate child directories that contain package.json
+  const results = [];
+  let entries = [];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch { return results; }
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const name = e.name;
+    if (name === 'node_modules' || name.startsWith('.')) continue;
+    const sub = path.join(dir, name);
+    if (isNodeProject(sub)) results.push(sub);
+  }
+  return results;
 }
 
 function isNodeProject(dir) {
@@ -92,12 +109,15 @@ async function installNode(dir, pm, dryRun) {
   const spinner = ora(`Installing dependencies for ${chalk.bold(label)}...`).start();
 
   if (dryRun) {
-    spinner.info(chalk.yellow(`[DRY] ${pm} install @ ${label}`));
+    spinner.info(chalk.yellow(`[DRY] ${pm} install (include dev) @ ${label}`));
     return;
   }
 
   try {
-    await run(pm, ['install'], dir);
+    const args = ['install'];
+    if (pm === 'pnpm') args.push('--prod=false');
+    else args.push('--production=false');
+    await run(pm, args, dir, { npm_config_production: 'false' });
     spinner.succeed(chalk.green(`Installed dependencies for ${label}`));
   } catch (e) {
     spinner.fail(chalk.red(`Failed to install dependencies for ${label}`));
@@ -113,6 +133,10 @@ async function ensureNodeProjects(pm, force, dryRun) {
   projects.add(uiDir);
   for (const dir of listSentraSubdirs(repoRoot)) {
     if (isNodeProject(dir)) projects.add(dir);
+    // Also include one-level nested Node projects (e.g., sentra-adapter/napcat)
+    for (const nested of listNestedNodeProjects(dir)) {
+      projects.add(nested);
+    }
   }
   const results = [];
   for (const dir of projects) {
