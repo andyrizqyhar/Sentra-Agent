@@ -15,6 +15,7 @@ interface EnvEditorProps {
   saving: boolean;
   isExample?: boolean;
   theme: 'light' | 'dark';
+  isMobile?: boolean;
 }
 
 export const EnvEditor: React.FC<EnvEditorProps> = ({
@@ -26,7 +27,8 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({
   onSave,
   saving,
   isExample,
-  theme
+  theme,
+  isMobile
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState<{ index: number; key: string } | null>(null);
@@ -38,45 +40,74 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({
     );
 
   return (
-    <div className={styles.container} data-theme={theme}>
-      <div className={styles.sidebar}>
-        <div className={styles.sidebarHeader}>
-          <div className={styles.searchWrapper}>
-            <IoSearch className={styles.searchIcon} />
-            <input
-              type="text"
-              placeholder="搜索配置..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className={styles.searchInput}
-            />
+    <div className={`${styles.container} ${isMobile ? styles.mobileContainer : ''}`} data-theme={theme}>
+      {!isMobile && (
+        <div className={styles.sidebar}>
+          <div className={styles.sidebarHeader}>
+            <div className={styles.searchWrapper}>
+              <IoSearch className={styles.searchIcon} />
+              <input
+                type="text"
+                placeholder="搜索配置..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className={styles.searchInput}
+              />
+            </div>
+          </div>
+          <div className={styles.sidebarContent}>
+            <div className={styles.groupTitle}>通用设置</div>
+            <div className={`${styles.sidebarItem} ${styles.active}`}>
+              <span className="material-icons" style={{ fontSize: 16, marginRight: 8 }}>tune</span>
+              环境变量
+            </div>
           </div>
         </div>
-        <div className={styles.sidebarContent}>
-          <div className={styles.groupTitle}>通用设置</div>
-          <div className={`${styles.sidebarItem} ${styles.active}`}>
-            <span className="material-icons" style={{ fontSize: 16, marginRight: 8 }}>tune</span>
-            环境变量
-          </div>
-        </div>
-      </div>
+      )}
 
       <div className={styles.mainContent}>
         <div className={styles.toolbar}>
-          <div className={styles.breadcrumb}>
-            <span className={styles.badge}>{vars.length}</span> 配置项
-            {appName && <span style={{ marginLeft: 8, opacity: 0.6 }}> • {appName}</span>}
-          </div>
-          <div className={styles.actions}>
-            <button className={styles.macBtn} onClick={onAdd}>
-              <IoAdd size={14} style={{ marginRight: 4 }} />
-              新增
-            </button>
-            <button className={`${styles.macBtn} ${styles.primary}`} onClick={onSave} disabled={saving}>
-              <IoSave size={14} style={{ marginRight: 4 }} />
-              {saving ? '保存中...' : '保存'}
-            </button>
-          </div>
+          {isMobile ? (
+            <>
+              <div className={styles.mobileSearchInputBox}>
+                <IoSearch className={styles.searchIcon} />
+                <input
+                  type="text"
+                  placeholder="搜索配置..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  className={styles.searchInput}
+                />
+              </div>
+              <div className={styles.actions}>
+                <button className={styles.macBtn} onClick={onAdd}>
+                  <IoAdd size={14} style={{ marginRight: 4 }} />
+                  新增
+                </button>
+                <button className={`${styles.macBtn} ${styles.primary}`} onClick={onSave} disabled={saving}>
+                  <IoSave size={14} style={{ marginRight: 4 }} />
+                  {saving ? '...' : '保存'}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={styles.breadcrumb}>
+                <span className={styles.badge}>{vars.length}</span> 配置项
+                {appName && <span style={{ marginLeft: 8, opacity: 0.6 }}> • {appName}</span>}
+              </div>
+              <div className={styles.actions}>
+                <button className={styles.macBtn} onClick={onAdd}>
+                  <IoAdd size={14} style={{ marginRight: 4 }} />
+                  新增
+                </button>
+                <button className={`${styles.macBtn} ${styles.primary}`} onClick={onSave} disabled={saving}>
+                  <IoSave size={14} style={{ marginRight: 4 }} />
+                  {saving ? '...' : '保存'}
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         {isExample && (
@@ -104,7 +135,7 @@ export const EnvEditor: React.FC<EnvEditorProps> = ({
             </div>
           ) : (
             <div className={styles.settingsGroup}>
-              {filteredVars.map((v, idx) => (
+              {filteredVars.map((v) => (
                 <div key={v.originalIndex} className={styles.settingsRow}>
                   <div className={styles.rowHeader}>
                     <div className={styles.keyInfo}>

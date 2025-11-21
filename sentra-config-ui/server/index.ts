@@ -6,12 +6,16 @@ import { scriptRoutes } from './routes/scripts';
 import { join } from 'path';
 import { existsSync } from 'fs';
 import dotenv from 'dotenv';
+import crypto from 'crypto';
 
 // 加载环境变量
 dotenv.config();
 
 const PORT = parseInt(process.env.SERVER_PORT || '7245');
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+
+// Generate a random security token
+const SECURITY_TOKEN = crypto.randomBytes(4).toString('hex').toUpperCase();
 
 async function start() {
   const fastify = Fastify({
@@ -25,6 +29,38 @@ async function start() {
       const parts = CORS_ORIGIN.split(',').map(s => s.trim()).filter(Boolean);
       return parts.length > 1 ? parts : parts[0] || false;
     })(),
+  });
+
+  // Authentication Middleware
+  fastify.addHook('onRequest', async (request, reply) => {
+    // Allow static files and verify endpoint without token
+    if (
+      request.url.startsWith('/api/auth/verify') ||
+      !request.url.startsWith('/api')
+    ) {
+      return;
+    }
+
+    let token = request.headers['x-auth-token'];
+
+    // Also check query string for EventSource connections
+    if (!token && (request.query as any)?.token) {
+      token = (request.query as any).token;
+    }
+
+    if (token !== SECURITY_TOKEN) {
+      reply.code(401).send({ error: 'Unauthorized: Invalid or missing security token' });
+    }
+  });
+
+  // Auth Verification Endpoint
+  fastify.post('/api/auth/verify', async (request, reply) => {
+    const { token } = request.body as { token: string };
+    if (token === SECURITY_TOKEN) {
+      return { success: true };
+    } else {
+      reply.code(401).send({ success: false, error: 'Invalid token' });
+    }
   });
 
   // 注册路由
@@ -52,9 +88,16 @@ async function start() {
 
   try {
     await fastify.listen({ port: PORT, host: '0.0.0.0' });
-    console.log(`\nSentra Config Webui Server running at:`);
-    console.log(`   - Local:   http://localhost:${PORT}`);
-    console.log(`   - Network: http://0.0.0.0:${PORT}\n`);
+    console.log('\n' + '='.repeat(50));
+    console.log('Sentra Config Webui Server Started');
+    console.log('='.repeat(50));
+    console.log(`\n🔐 SECURITY TOKEN: \x1b[32m\x1b[1m${SECURITY_TOKEN}\x1b[0m`);
+    console.log('\nPlease use this token to log in to the dashboard.\n');
+    console.log(`\nSentra 配置管理服务已启动:`);
+    console.log(`   - 本地访问:   http://localhost:${PORT}`);
+    console.log(`   - 网络访问:   http://0.0.0.0:${PORT}`);
+    console.log(`\n   [安全] 访问令牌: ${SECURITY_TOKEN}`);
+    console.log(`   请在登录界面输入此令牌以访问系统。\n`);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

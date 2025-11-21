@@ -7,11 +7,13 @@ const ROOT_DIR = resolve(process.cwd(), '..');
 
 // 要扫描的模块目录
 const MODULES = [
+  '.', // 根目录 .env / .env.example
   'sentra-prompts',
   'sentra-mcp',
   'sentra-rag',
   'sentra-emo',
   'sentra-adapter/napcat',
+  'utils/emoji-stickers', // 表情包配置 .env / .env.example
 ];
 
 /**

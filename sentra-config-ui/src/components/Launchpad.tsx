@@ -2,7 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getIconForType, getDisplayName } from '../utils/icons';
 import styles from './Launchpad.module.css';
-import { IoChevronBack, IoChevronForward } from 'react-icons/io5';
+import { IoChevronBack, IoChevronForward, IoChevronUp, IoChevronDown } from 'react-icons/io5';
+import { useDevice } from '../hooks/useDevice';
 
 interface LaunchpadProps {
   isOpen: boolean;
@@ -13,6 +14,9 @@ interface LaunchpadProps {
 export const Launchpad: React.FC<LaunchpadProps> = ({ isOpen, onClose, items }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(0);
+  const { isMobile, isTablet } = useDevice();
+
+  const isMobileView = isMobile || isTablet;
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -47,13 +51,6 @@ export const Launchpad: React.FC<LaunchpadProps> = ({ isOpen, onClose, items }) 
       }
     });
 
-    // Page 1: Core Apps + Some Tools if space permits (but user asked for specific pages)
-    // User request: 
-    // Page 1: Prompts, MCP, Emo (Core)
-    // Page 2: Other Tools
-    // Page 3: QQ Plugins
-
-    // Let's strictly follow the requested order if possible, but handle empty categories
     const result = [];
     if (coreApps.length > 0) result.push(coreApps);
     if (toolsApps.length > 0) result.push(toolsApps);
@@ -77,12 +74,16 @@ export const Launchpad: React.FC<LaunchpadProps> = ({ isOpen, onClose, items }) 
     <AnimatePresence>
       {isOpen && (
         <motion.div
-          className={styles.overlay}
+          className={`${styles.overlay} ${isMobileView ? styles.mobileOverlay : ''}`}
           initial={{ opacity: 0, scale: 1.1 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 1.1 }}
           transition={{ duration: 0.2 }}
           onClick={onClose}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
         >
           <div className={styles.content} onClick={onClose}>
             <div className={styles.searchBar} onClick={e => e.stopPropagation()}>
@@ -103,10 +104,10 @@ export const Launchpad: React.FC<LaunchpadProps> = ({ isOpen, onClose, items }) 
               <AnimatePresence mode='wait'>
                 <motion.div
                   key={activePage}
-                  className={styles.grid}
-                  initial={{ opacity: 0, x: 50 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -50 }}
+                  className={`${styles.grid} ${isMobileView ? styles.mobileGrid : ''}`}
+                  initial={{ opacity: 0, x: isMobileView ? 0 : 50, y: isMobileView ? 50 : 0 }}
+                  animate={{ opacity: 1, x: 0, y: 0 }}
+                  exit={{ opacity: 0, x: isMobileView ? 0 : -50, y: isMobileView ? -50 : 0 }}
                   transition={{ duration: 0.2 }}
                   onClick={onClose}
                 >
@@ -133,13 +134,13 @@ export const Launchpad: React.FC<LaunchpadProps> = ({ isOpen, onClose, items }) 
             </div>
 
             {totalPages > 1 && (
-              <div className={styles.pagination} onClick={e => e.stopPropagation()}>
+              <div className={`${styles.pagination} ${isMobileView ? styles.mobilePagination : ''}`} onClick={e => e.stopPropagation()}>
                 <button
                   className={styles.navBtn}
                   onClick={() => handlePageChange('prev')}
                   disabled={activePage === 0}
                 >
-                  <IoChevronBack />
+                  {isMobileView ? <IoChevronUp /> : <IoChevronBack />}
                 </button>
 
                 <div className={styles.dots}>
@@ -157,7 +158,7 @@ export const Launchpad: React.FC<LaunchpadProps> = ({ isOpen, onClose, items }) 
                   onClick={() => handlePageChange('next')}
                   disabled={activePage === totalPages - 1}
                 >
-                  <IoChevronForward />
+                  {isMobileView ? <IoChevronDown /> : <IoChevronForward />}
                 </button>
               </div>
             )}

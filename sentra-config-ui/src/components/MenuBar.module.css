@@ -18,7 +18,8 @@
   box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
 }
 
-.left, .right {
+.left,
+.right {
   display: flex;
   align-items: center;
   height: 100%;
@@ -75,7 +76,7 @@
 }
 
 .dropdownItem:hover {
-  background: var(--mac-accent-color);
+  background: #007AFF;
   color: white;
 }
 
@@ -142,7 +143,7 @@
   border-radius: 16px;
   padding: 12px;
   z-index: 10000;
-  box-shadow: 0 0 0 1px rgba(0,0,0,0.05), 0 20px 40px rgba(0,0,0,0.15);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.05), 0 20px 40px rgba(0, 0, 0, 0.15);
 }
 
 .ccGrid {
@@ -155,7 +156,7 @@
   background: rgba(255, 255, 255, 0.5);
   border-radius: 12px;
   padding: 12px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .ccRow {
@@ -173,7 +174,7 @@
   width: 32px;
   height: 32px;
   border-radius: 50%;
-  background: rgba(0,0,0,0.05);
+  background: rgba(0, 0, 0, 0.05);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -183,7 +184,7 @@
 }
 
 .ccIcon.active {
-  background: var(--mac-accent-color);
+  background: #007AFF;
   color: white;
 }
 
@@ -195,11 +196,11 @@
 .ccSlider {
   flex: 1;
   height: 24px;
-  background: rgba(0,0,0,0.05);
+  background: rgba(0, 0, 0, 0.05);
   border-radius: 12px;
   overflow: hidden;
   position: relative;
-  border: 1px solid rgba(0,0,0,0.05);
+  border: 1px solid rgba(0, 0, 0, 0.05);
   display: flex;
   align-items: center;
 }
@@ -207,7 +208,7 @@
 .ccSliderFill {
   height: 100%;
   background: white;
-  border-right: 1px solid rgba(0,0,0,0.1);
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
   position: absolute;
   top: 0;
   left: 0;

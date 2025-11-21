@@ -40,7 +40,7 @@ export const MacWindow: React.FC<MacWindowProps> = ({
   const [isMaximized, setIsMaximized] = useState(false);
   const [size, setSize] = useState(initialSize);
   const nodeRef = useRef<HTMLDivElement>(null);
-  
+
   // Initialize position from props or calculate center immediately to avoid flash/wrong position
   const [defaultPos] = useState(() => {
     if (initialPos) return initialPos;

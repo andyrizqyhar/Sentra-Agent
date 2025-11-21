@@ -22,7 +22,8 @@ export const TerminalWindow: React.FC<TerminalWindowProps> = ({
     const [autoScroll, setAutoScroll] = useState(true);
 
     useEffect(() => {
-        const eventSource = new EventSource(`/api/scripts/stream/${processId}`);
+        const token = sessionStorage.getItem('sentra_auth_token');
+        const eventSource = new EventSource(`/api/scripts/stream/${processId}?token=${token}`);
 
         eventSource.onmessage = (event) => {
             const data = JSON.parse(event.data);

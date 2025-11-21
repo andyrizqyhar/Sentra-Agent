@@ -57,6 +57,8 @@ export const AppIconWrapper = ({ children, color = '#fff', bg = 'linear-gradient
 export const getDisplayName = (name: string): string => {
   const n = name.toLowerCase();
   const mapping: Record<string, string> = {
+    '.': '根目录配置',
+    'utils/emoji-stickers': '表情包配置',
     'av_transcribe': '音频转录',
     'mindmap_gen': '思维导图',
     'custom_music_card': '自定义音卡',
@@ -138,7 +140,7 @@ export const getIconForType = (name: string, type: 'module' | 'plugin'): React.R
   if (n.includes('web')) return <AppIconWrapper bg="#50E3C2"><FcGlobe /></AppIconWrapper>;
 
   // Media
-  if (n.includes('image')) return <AppIconWrapper bg="#F8E71C"><FcPicture /></AppIconWrapper>;
+  if (n.includes('emoji-stickers') || n.includes('image')) return <AppIconWrapper bg="#F8E71C"><FcPicture /></AppIconWrapper>;
   if (n.includes('video')) return <AppIconWrapper bg="#D0021B"><FcVideoFile /></AppIconWrapper>;
   if (n.includes('music') || n.includes('suno')) return <AppIconWrapper bg="#FF2D55"><FcMusic /></AppIconWrapper>;
   if (n.includes('av_')) return <AppIconWrapper bg="#9B9B9B"><FcAudioFile /></AppIconWrapper>;

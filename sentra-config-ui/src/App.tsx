@@ -1,19 +1,25 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ConfigData, ModuleConfig, PluginConfig, EnvVariable } from './types/config';
-import { fetchConfigs, saveModuleConfig, savePluginConfig } from './services/api';
+import { fetchConfigs, saveModuleConfig, savePluginConfig, verifyToken, getAuthHeaders } from './services/api';
 import { MacWindow } from './components/MacWindow';
 import { Dock } from './components/Dock';
 import { MenuBar } from './components/MenuBar';
 import { EnvEditor } from './components/EnvEditor';
 import { Launchpad } from './components/Launchpad';
 import { TerminalWindow } from './components/TerminalWindow';
+import { LoginScreen } from './components/LoginScreen';
+import { IOSHomeScreen } from './components/IOSHomeScreen';
+import { IOSEditor } from './components/IOSEditor';
 import { getIconForType, getDisplayName } from './utils/icons';
-import { IoCloseOutline, IoRemoveOutline, IoSquareOutline, IoCopyOutline, IoCubeOutline, IoTerminalOutline } from 'react-icons/io5';
+import { IoCubeOutline, IoTerminalOutline, IoRocket, IoBuild, IoChatbubbleEllipses, IoChevronBack } from 'react-icons/io5';
+import { FaTools } from 'react-icons/fa';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { Dialog } from './components/Dialog';
 import { Menu, Item, Submenu, useContextMenu } from 'react-contexify';
+import { useDevice } from './hooks/useDevice';
 import 'react-contexify/dist/ReactContexify.css';
 import './styles/macOS.css';
+import './styles/ios.css';
 
 type FileItem = (ModuleConfig | PluginConfig) & { type: 'module' | 'plugin' };
 type DeskWindow = {
@@ -36,7 +42,7 @@ type TerminalWin = {
   minimized: boolean;
 };
 
-type DesktopIcon = {
+export type DesktopIcon = {
   id: string;
   name: string;
   icon: React.ReactNode;
@@ -61,6 +67,9 @@ const SOLID_COLORS = [
 ];
 
 function App() {
+  const { isMobile, isTablet } = useDevice();
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authChecking, setAuthChecking] = useState(true);
   const [loading, setLoading] = useState(true);
   const [configData, setConfigData] = useState<ConfigData | null>(null);
   const [saving, setSaving] = useState(false);
@@ -180,6 +189,16 @@ function App() {
   const [terminalWindows, setTerminalWindows] = useState<TerminalWin[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
 
+  // iOS editor windows state
+  type IOSEditorWin = {
+    id: string;
+    file: FileItem;
+    editedVars: EnvVariable[];
+    minimized: boolean;
+  };
+  const [iosEditorWindows, setIosEditorWindows] = useState<IOSEditorWin[]>([]);
+  const [activeIOSEditorId, setActiveIOSEditorId] = useState<string | null>(null);
+
   const handleRunBootstrap = async () => {
     const existing = terminalWindows.find(t => t.appKey === 'bootstrap');
     if (existing) {
@@ -192,7 +211,7 @@ function App() {
     try {
       const response = await fetch('/api/scripts/bootstrap', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ args: ['--force'] }),
       });
       const data = await response.json();
@@ -229,7 +248,7 @@ function App() {
     try {
       const response = await fetch('/api/scripts/start', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ args: [] }),
       });
       const data = await response.json();
@@ -255,7 +274,7 @@ function App() {
   };
 
   const handleRunNapcatBuild = async () => {
-    const existing = terminalWindows.find(t => t.appKey === 'napcat');
+    const existing = terminalWindows.find(t => t.appKey === 'napcat-build');
     if (existing) {
       if (existing.minimized) {
         setTerminalWindows(prev => prev.map(t => t.id === existing.id ? { ...t, minimized: false } : t));
@@ -266,7 +285,7 @@ function App() {
     try {
       const response = await fetch('/api/scripts/napcat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ args: ['build'] }),
       });
       const data = await response.json();
@@ -277,7 +296,7 @@ function App() {
           id,
           title: 'Napcat Build',
           processId: data.processId,
-          appKey: 'napcat',
+          appKey: 'napcat-build',
           pos: { x: window.innerWidth / 2 - 350, y: window.innerHeight / 2 - 250 },
           z: zNext + 1,
           minimized: false,
@@ -292,7 +311,7 @@ function App() {
   };
 
   const handleRunNapcatStart = async () => {
-    const existing = terminalWindows.find(t => t.appKey === 'napcat');
+    const existing = terminalWindows.find(t => t.appKey === 'napcat-start');
     if (existing) {
       if (existing.minimized) {
         setTerminalWindows(prev => prev.map(t => t.id === existing.id ? { ...t, minimized: false } : t));
@@ -303,7 +322,7 @@ function App() {
     try {
       const response = await fetch('/api/scripts/napcat', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(),
         body: JSON.stringify({ args: ['start'] }),
       });
       const data = await response.json();
@@ -314,7 +333,7 @@ function App() {
           id,
           title: 'Napcat Start',
           processId: data.processId,
-          appKey: 'napcat',
+          appKey: 'napcat-start',
           pos: { x: window.innerWidth / 2 - 350, y: window.innerHeight / 2 - 250 },
           z: zNext + 1,
           minimized: false,
@@ -332,13 +351,102 @@ function App() {
     const terminal = terminalWindows.find(t => t.id === id);
     if (terminal) {
       try {
-        await fetch(`/api/scripts/kill/${terminal.processId}`, { method: 'POST' });
+        await fetch(`/api/scripts/kill/${terminal.processId}`, {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({})
+        });
       } catch (e) {
         console.error('Failed to kill process on close', e);
       }
     }
     setTerminalWindows(prev => prev.filter(t => t.id !== id));
     if (activeTerminalId === id) setActiveTerminalId(null);
+  };
+
+  const handleMinimizeTerminal = (id: string) => {
+    setTerminalWindows(prev => prev.map(t => t.id === id ? { ...t, minimized: true } : t));
+    setActiveTerminalId(null);
+  };
+
+  // iOS Editor handlers
+  const handleIOSOpenWindow = (file: FileItem) => {
+    const existing = iosEditorWindows.find(w => w.file.name === file.name && w.file.type === file.type);
+    if (existing) {
+      // If app is minimized, restore it
+      if (existing.minimized) {
+        setIosEditorWindows(prev => prev.map(w => w.id === existing.id ? { ...w, minimized: false } : w));
+      }
+      setActiveIOSEditorId(existing.id);
+      return;
+    }
+
+    const id = `ios-editor-${Date.now()}`;
+    const win: IOSEditorWin = {
+      id,
+      file,
+      editedVars: file.variables ? [...file.variables] : [],
+      minimized: false,
+    };
+    setIosEditorWindows(prev => [...prev, win]);
+    setActiveIOSEditorId(id);
+  };
+
+  const handleIOSMinimizeEditor = (id: string) => {
+    setIosEditorWindows(prev => prev.map(w => w.id === id ? { ...w, minimized: true } : w));
+    setActiveIOSEditorId(null);
+  };
+
+  const handleIOSCloseEditor = (id: string) => {
+    setIosEditorWindows(prev => prev.filter(w => w.id !== id));
+    if (activeIOSEditorId === id) setActiveIOSEditorId(null);
+  };
+
+  const handleIOSVarChange = (id: string, index: number, field: 'key' | 'value' | 'comment', val: string) => {
+    setIosEditorWindows(prev => prev.map(w => {
+      if (w.id !== id) return w;
+      const newVars = [...w.editedVars];
+      newVars[index] = { ...newVars[index], [field]: val };
+      return { ...w, editedVars: newVars };
+    }));
+  };
+
+  const handleIOSAddVar = (id: string) => {
+    setIosEditorWindows(prev => prev.map(w => w.id === id ? { ...w, editedVars: [...w.editedVars, { key: '', value: '', comment: '', isNew: true }] } : w));
+  };
+
+  const handleIOSDeleteVar = (id: string, index: number) => {
+    const win = iosEditorWindows.find(w => w.id === id);
+    if (!win) return;
+
+    const targetVar = win.editedVars[index];
+    if (!targetVar.isNew) {
+      addToast('error', '无法删除', '系统预设变量无法删除');
+      return;
+    }
+
+    setIosEditorWindows(prev => prev.map(w => w.id === id ? { ...w, editedVars: w.editedVars.filter((_, i) => i !== index) } : w));
+  };
+
+  const handleIOSSave = async (id: string) => {
+    const win = iosEditorWindows.find(w => w.id === id);
+    if (!win) return;
+
+    try {
+      setSaving(true);
+      const validVars = win.editedVars.filter(v => v.key.trim());
+      if (win.file.type === 'module') {
+        await saveModuleConfig(win.file.name, validVars);
+      } else {
+        await savePluginConfig(win.file.name, validVars);
+      }
+      addToast('success', '保存成功', `已更新 ${getDisplayName(win.file.name)} 配置`);
+      await loadConfigs(true);
+    } catch (error) {
+      addToast('error', '保存失败', error instanceof Error ? error.message : '未知错误');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const bringTerminalToFront = (id: string) => {
@@ -362,7 +470,7 @@ function App() {
         justifyContent: 'center',
         boxShadow: '0 4px 12px rgba(52, 199, 89, 0.3)'
       }}>
-        <IoCubeOutline size={28} color="white" />
+        <FaTools size={24} color="white" />
       </div>,
       position: { x: 20, y: 80 },
       onClick: handleRunBootstrap,
@@ -380,7 +488,7 @@ function App() {
         justifyContent: 'center',
         boxShadow: '0 4px 12px rgba(0, 122, 255, 0.3)'
       }}>
-        <IoTerminalOutline size={28} color="white" />
+        <IoRocket size={28} color="white" />
       </div>,
       position: { x: 20, y: 180 },
       onClick: handleRunStart,
@@ -398,7 +506,7 @@ function App() {
         justifyContent: 'center',
         boxShadow: '0 4px 12px rgba(155, 89, 182, 0.3)'
       }}>
-        <IoCubeOutline size={28} color="white" />
+        <IoBuild size={26} color="white" />
       </div>,
       position: { x: 20, y: 280 },
       onClick: handleRunNapcatBuild,
@@ -416,7 +524,7 @@ function App() {
         justifyContent: 'center',
         boxShadow: '0 4px 12px rgba(22, 160, 133, 0.3)'
       }}>
-        <IoTerminalOutline size={28} color="white" />
+        <IoChatbubbleEllipses size={28} color="white" />
       </div>,
       position: { x: 20, y: 380 },
       onClick: handleRunNapcatStart,
@@ -436,8 +544,33 @@ function App() {
   }, [wallpaperInterval, wallpapers, currentWallpaper]);
 
   useEffect(() => {
-    loadConfigs();
+    checkAuth();
   }, []);
+
+  const checkAuth = async () => {
+    const token = sessionStorage.getItem('sentra_auth_token');
+    if (token) {
+      const isValid = await verifyToken(token);
+      if (isValid) {
+        setIsAuthenticated(true);
+        loadConfigs();
+      } else {
+        sessionStorage.removeItem('sentra_auth_token');
+      }
+    }
+    setAuthChecking(false);
+  };
+
+  const handleLogin = async (token: string) => {
+    const isValid = await verifyToken(token);
+    if (isValid) {
+      sessionStorage.setItem('sentra_auth_token', token);
+      setIsAuthenticated(true);
+      loadConfigs();
+      return true;
+    }
+    return false;
+  };
 
   // Debounced persistence
   useEffect(() => {
@@ -706,6 +839,33 @@ function App() {
     index === self.findIndex((t) => t.id === item.id)
   );
 
+  const isSolidColor = currentWallpaper.startsWith('#');
+
+  if (authChecking) {
+    return null; // Or a simple loading spinner
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <>
+        <div
+          style={{
+            backgroundImage: isSolidColor ? 'none' : `url(${currentWallpaper})`,
+            backgroundColor: isSolidColor ? currentWallpaper : '#000',
+            backgroundSize: wallpaperFit,
+            backgroundPosition: 'center',
+            backgroundRepeat: 'no-repeat',
+            height: '100vh',
+            width: '100vw',
+            position: 'absolute',
+            zIndex: 0
+          }}
+        />
+        <LoginScreen onLogin={handleLogin} wallpaper={currentWallpaper} />
+      </>
+    );
+  }
+
   if (loading) {
     return (
       <div style={{
@@ -724,8 +884,73 @@ function App() {
     );
   }
 
-  const isSolidColor = currentWallpaper.startsWith('#');
+  // iOS / Mobile / Tablet View
+  if (isMobile || isTablet) {
+    return (
+      <>
+        <IOSHomeScreen
+          icons={desktopIcons}
+          onLaunch={(icon) => icon.onClick()}
+          wallpaper="/wallpapers/ios-default.png"
+          onLaunchpadOpen={() => setLaunchpadOpen(true)}
+        />
 
+        {/* Render full screen windows on top */}
+        {terminalWindows.map(term => (
+          <div key={term.id} className="ios-app-window" style={{ display: term.minimized ? 'none' : 'flex' }}>
+            <div className="ios-app-header">
+              <div className="ios-back-btn" onClick={() => handleMinimizeTerminal(term.id)}>
+                <IoChevronBack /> Home
+              </div>
+              <div>{term.title}</div>
+              <div style={{ color: '#ff3b30', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => handleCloseTerminal(term.id)}>
+                Close
+              </div>
+            </div>
+            <TerminalWindow processId={term.processId} />
+          </div>
+        ))}
+
+        {/* Launchpad for iOS */}
+        <Launchpad
+          isOpen={launchpadOpen}
+          onClose={() => setLaunchpadOpen(false)}
+          items={allItems.map(item => ({
+            name: item.name,
+            type: item.type,
+            onClick: () => {
+              handleIOSOpenWindow(item);
+              setLaunchpadOpen(false);
+            }
+          }))}
+        />
+
+        {/* iOS Editor Windows */}
+        {iosEditorWindows
+          .filter(win => !win.minimized)
+          .map(win => (
+            <div key={win.id} style={{ display: win.id === activeIOSEditorId ? 'flex' : 'none' }}>
+              <IOSEditor
+                appName={getDisplayName(win.file.name)}
+                vars={win.editedVars}
+                onUpdate={(idx, field, val) => handleIOSVarChange(win.id, idx, field, val)}
+                onAdd={() => handleIOSAddVar(win.id)}
+                onDelete={(idx) => handleIOSDeleteVar(win.id, idx)}
+                onSave={() => handleIOSSave(win.id)}
+                onMinimize={() => handleIOSMinimizeEditor(win.id)}
+                onClose={() => handleIOSCloseEditor(win.id)}
+                saving={saving}
+                isExample={!win.file.hasEnv && win.file.hasExample}
+              />
+            </div>
+          ))}
+
+        <ToastContainer toasts={toasts} removeToast={removeToast} />
+      </>
+    );
+  }
+
+  // Desktop View
   return (
     <div
       className="desktop-container"

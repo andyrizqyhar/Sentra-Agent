@@ -59,6 +59,7 @@
   left: 8px;
   color: var(--text-secondary);
   font-size: 14px;
+  z-index: 1;
 }
 
 .searchInput {
@@ -124,6 +125,7 @@
   justify-content: space-between;
   padding: 0 16px;
   background: var(--bg-primary);
+  gap: 12px;
 }
 
 .breadcrumb {
@@ -363,4 +365,45 @@
 
 .confirmBtn:hover {
   background: #d63025;
+}
+
+/* Mobile Responsive */
+.mobileContainer {
+  flex-direction: column;
+}
+
+.mobileSearchInputBox {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+/* Hide Monaco Editor hidden textarea on mobile to prevent artifacts */
+:global(.iPadShowKeyboard) {
+  display: none !important;
+}
+
+@media (max-width: 768px) {
+  .sidebar {
+    display: none;
+  }
+
+  .mainContent {
+    width: 100%;
+  }
+
+  .toolbar {
+    padding: 0 12px;
+  }
+
+  .scrollArea {
+    padding: 12px;
+  }
+
+  .macBtn {
+    font-size: 11px;
+    padding: 4px 8px;
+  }
 }
