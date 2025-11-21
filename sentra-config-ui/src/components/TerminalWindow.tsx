@@ -81,10 +81,7 @@ export const TerminalWindow: React.FC<TerminalWindowProps> = ({
         }
     }, [lines, autoScroll]);
 
-    // Debug logging
-    useEffect(() => {
-        console.log('Terminal lines updated:', lines.length);
-    }, [lines]);
+    // no-op
 
     const handleScroll = () => {
         if (scrollRef.current) {
@@ -96,17 +93,12 @@ export const TerminalWindow: React.FC<TerminalWindowProps> = ({
 
     return (
         <div className={styles.terminalContainer} style={{ height: '100%', width: '100%', display: 'flex', flexDirection: 'column' }}>
-            <div style={{
-                padding: '4px 8px',
-                background: '#333',
-                color: '#aaa',
-                fontSize: '10px',
-                borderBottom: '1px solid #444',
-                display: 'flex',
-                justifyContent: 'space-between'
-            }}>
-                <span>Process ID: {processId}</span>
-                <span>Lines: {lines.length} {isRunning ? '(Running)' : '(Exited)'}</span>
+            <div className={styles.header}>
+                <span>进程: {processId}</span>
+                <span className={styles.status}>
+                    <span>行数: {lines.length}</span>
+                    <span className={`${styles.pill} ${isRunning ? styles.running : styles.exited}`}>{isRunning ? '运行中' : '已退出'}</span>
+                </span>
             </div>
             <div
                 className={styles.terminal}

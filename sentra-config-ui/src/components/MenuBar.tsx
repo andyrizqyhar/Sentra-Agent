@@ -9,7 +9,8 @@ import {
   IoBluetooth,
   IoVolumeHigh,
   IoSunny,
-  IoMoon
+  IoMoon,
+  IoApps
 } from 'react-icons/io5';
 import { BsController } from 'react-icons/bs';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -23,6 +24,8 @@ interface MenuBarProps {
   setBrightness: (val: number) => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  showDock: boolean;
+  onToggleDock: () => void;
 }
 
 export const MenuBar: React.FC<MenuBarProps> = ({
@@ -32,7 +35,9 @@ export const MenuBar: React.FC<MenuBarProps> = ({
   brightness,
   setBrightness,
   theme,
-  onToggleTheme
+  onToggleTheme,
+  showDock,
+  onToggleDock
 }) => {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [activeMenu, setActiveMenu] = useState<number | null>(null);
@@ -99,6 +104,14 @@ export const MenuBar: React.FC<MenuBarProps> = ({
           ))}
         </div>
         <div className={styles.right}>
+          <div
+            className={styles.menuItem}
+            onClick={(e) => { e.stopPropagation(); onToggleDock(); }}
+            title={showDock ? '隐藏常用应用' : '显示常用应用'}
+            style={{ opacity: showDock ? 1 : 0.5 }}
+          >
+            <IoApps size={18} />
+          </div>
           <div className={styles.menuItem} onClick={onToggleTheme} title={theme === 'dark' ? '切换到日间模式' : '切换到夜间模式'}>
             {theme === 'dark' ? <IoMoon size={18} /> : <IoSunny size={18} />}
           </div>

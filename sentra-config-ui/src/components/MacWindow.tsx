@@ -40,6 +40,7 @@ export const MacWindow: React.FC<MacWindowProps> = ({
   const [isMaximized, setIsMaximized] = useState(false);
   const [size, setSize] = useState(initialSize);
   const nodeRef = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
 
   // Initialize position from props or calculate center immediately to avoid flash/wrong position
   const [defaultPos] = useState(() => {
@@ -57,6 +58,7 @@ export const MacWindow: React.FC<MacWindowProps> = ({
     if (!initialPos) {
       onMove(defaultPos.x, defaultPos.y);
     }
+    setPos(initialPos || defaultPos);
   }, []);
 
   const handleMaximizeToggle = () => {
@@ -71,6 +73,87 @@ export const MacWindow: React.FC<MacWindowProps> = ({
     exit: { opacity: 0 }
   };
 
+  const resizingRef = useRef<{
+    dir: Dir;
+    startX: number;
+    startY: number;
+    startW: number;
+    startH: number;
+    startPos: { x: number; y: number };
+  } | null>(null);
+
+  const onResizeMove = (evt: MouseEvent | TouchEvent) => {
+    const st = resizingRef.current;
+    if (!st) return;
+    const p = getPoint(evt);
+    const dx = p.x - st.startX;
+    const dy = p.y - st.startY;
+
+    const minW = 360;
+    const minH = 240;
+
+    let newW = st.startW;
+    let newH = st.startH;
+    let newX = st.startPos.x;
+    let newY = st.startPos.y;
+
+    if (st.dir.includes('e')) newW = Math.max(minW, st.startW + dx);
+    if (st.dir.includes('s')) newH = Math.max(minH, st.startH + dy);
+    if (st.dir.includes('w')) {
+      const rawX = st.startPos.x + dx;
+      newX = Math.max(0, rawX);
+      const moved = newX - st.startPos.x; // clamped dx
+      newW = Math.max(minW, st.startW - moved);
+    }
+    if (st.dir.includes('n')) {
+      const rawY = st.startPos.y + dy;
+      newY = Math.max(0, rawY);
+      const movedY = newY - st.startPos.y;
+      newH = Math.max(minH, st.startH - movedY);
+    }
+
+    // Prevent overflow on the right/bottom relative to viewport
+    const viewportW = window.innerWidth;
+    const viewportH = window.innerHeight - 0; // menu bar accounted by y origin
+    if (newX + newW > viewportW) newW = Math.max(minW, viewportW - newX);
+    if (newY + newH > viewportH) newH = Math.max(minH, viewportH - newY);
+
+    setPos({ x: newX, y: newY });
+    setSize({ width: newW, height: newH });
+  };
+
+  const onResizeEnd = () => {
+    if (resizingRef.current) {
+      resizingRef.current = null;
+      window.removeEventListener('mousemove', onResizeMove as any);
+      window.removeEventListener('mouseup', onResizeEnd);
+      window.removeEventListener('touchmove', onResizeMove as any);
+      window.removeEventListener('touchend', onResizeEnd);
+      if (pos) onMove(pos.x, pos.y);
+    }
+  };
+
+  const startResize = (dir: Dir, e: React.MouseEvent | React.TouchEvent) => {
+    if (isMaximized) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const base = pos || defaultPos;
+    const point = 'nativeEvent' in e ? (e as any).nativeEvent : e;
+    const p = getPoint(point as MouseEvent | TouchEvent);
+    resizingRef.current = {
+      dir,
+      startX: p.x,
+      startY: p.y,
+      startW: typeof size.width === 'number' ? size.width : 800,
+      startH: typeof size.height === 'number' ? size.height : 500,
+      startPos: base,
+    };
+    window.addEventListener('mousemove', onResizeMove as any);
+    window.addEventListener('mouseup', onResizeEnd);
+    window.addEventListener('touchmove', onResizeMove as any, { passive: false } as any);
+    window.addEventListener('touchend', onResizeEnd);
+  };
+
   const windowContent = (
     <motion.div
       ref={nodeRef}
@@ -83,7 +166,7 @@ export const MacWindow: React.FC<MacWindowProps> = ({
         top: isMaximized ? 30 : 0,
         left: isMaximized ? 0 : 0,
         borderRadius: isMaximized ? 0 : 8,
-        resize: isMaximized ? 'none' : 'both',
+        resize: 'none',
       }}
       onMouseDown={onFocus}
       initial="hidden"
@@ -112,6 +195,20 @@ export const MacWindow: React.FC<MacWindowProps> = ({
       <div className={styles.content}>
         {children}
       </div>
+
+      {/* Resize Handles */}
+      {!isMaximized && (
+        <>
+          <div className={`${styles.resizeHandle} ${styles.n}`} onMouseDown={(e) => startResize('n', e)} onTouchStart={(e) => startResize('n', e)} />
+          <div className={`${styles.resizeHandle} ${styles.s}`} onMouseDown={(e) => startResize('s', e)} onTouchStart={(e) => startResize('s', e)} />
+          <div className={`${styles.resizeHandle} ${styles.e}`} onMouseDown={(e) => startResize('e', e)} onTouchStart={(e) => startResize('e', e)} />
+          <div className={`${styles.resizeHandle} ${styles.w}`} onMouseDown={(e) => startResize('w', e)} onTouchStart={(e) => startResize('w', e)} />
+          <div className={`${styles.resizeHandle} ${styles.ne}`} onMouseDown={(e) => startResize('ne', e)} onTouchStart={(e) => startResize('ne', e)} />
+          <div className={`${styles.resizeHandle} ${styles.nw}`} onMouseDown={(e) => startResize('nw', e)} onTouchStart={(e) => startResize('nw', e)} />
+          <div className={`${styles.resizeHandle} ${styles.se}`} onMouseDown={(e) => startResize('se', e)} onTouchStart={(e) => startResize('se', e)} />
+          <div className={`${styles.resizeHandle} ${styles.sw}`} onMouseDown={(e) => startResize('sw', e)} onTouchStart={(e) => startResize('sw', e)} />
+        </>
+      )}
     </motion.div>
   );
 
@@ -124,9 +221,10 @@ export const MacWindow: React.FC<MacWindowProps> = ({
   return (
     <Draggable
       handle=".window-drag-handle"
-      defaultPosition={defaultPos}
+      position={pos || defaultPos}
       onStart={onFocus}
-      onStop={(_e, data) => onMove(data.x, data.y)}
+      onDrag={(_e, data) => setPos({ x: data.x, y: data.y })}
+      onStop={(_e, data) => { setPos({ x: data.x, y: data.y }); onMove(data.x, data.y); }}
       nodeRef={nodeRef}
       bounds="parent" // Prevent dragging off screen completely
     >
@@ -134,3 +232,15 @@ export const MacWindow: React.FC<MacWindowProps> = ({
     </Draggable>
   );
 };
+
+// Resizing logic
+type Dir = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
+
+function getPoint(evt: MouseEvent | TouchEvent) {
+  if ((evt as TouchEvent).touches && (evt as TouchEvent).touches.length) {
+    const t = (evt as TouchEvent).touches[0];
+    return { x: t.clientX, y: t.clientY };
+  }
+  const m = evt as MouseEvent;
+  return { x: m.clientX, y: m.clientY };
+}

@@ -6,7 +6,7 @@ import { execSync } from 'child_process';
 
 interface ScriptProcess {
     id: string;
-    name: 'bootstrap' | 'start' | 'napcat';
+    name: 'bootstrap' | 'start' | 'napcat' | 'update';
     process: ReturnType<typeof spawn>;
     output: string[];
     exitCode: number | null;
@@ -25,7 +25,7 @@ export class ScriptRunner {
         return undefined;
     }
 
-    executeScript(scriptName: 'bootstrap' | 'start' | 'napcat', args: string[] = []): string {
+    executeScript(scriptName: 'bootstrap' | 'start' | 'napcat' | 'update', args: string[] = []): string {
         // Enforce single instance per script
         const running = this.findRunningByName(scriptName);
         if (running) {

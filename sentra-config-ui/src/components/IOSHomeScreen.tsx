@@ -7,7 +7,7 @@ interface IOSHomeScreenProps {
     onLaunch: (icon: DesktopIcon) => void;
     wallpaper: string;
     onLaunchpadOpen: () => void;
-    dockExtra: { id: string; icon: React.ReactNode; onClick: () => void }[];
+    dockExtra: { id: string; name: string; icon: React.ReactNode; onClick: () => void }[];
 }
 
 export const IOSHomeScreen: React.FC<IOSHomeScreenProps> = ({ icons, onLaunch, wallpaper, onLaunchpadOpen, dockExtra }) => {
@@ -36,6 +36,20 @@ export const IOSHomeScreen: React.FC<IOSHomeScreenProps> = ({ icons, onLaunch, w
         ...dockExtra
     ];
 
+    // Long-press to show name on Dock icons
+    const [showId, setShowId] = React.useState<string | null>(null);
+    const timerRef = React.useRef<number | null>(null);
+    const clearTimer = () => { if (timerRef.current) { window.clearTimeout(timerRef.current); timerRef.current = null; } };
+    const bindLong = (id: string) => ({
+        onMouseDown: () => { clearTimer(); timerRef.current = window.setTimeout(() => setShowId(id), 500); },
+        onMouseUp: () => { clearTimer(); setShowId(null); },
+        onMouseLeave: () => { clearTimer(); setShowId(null); },
+        onTouchStart: () => { clearTimer(); timerRef.current = window.setTimeout(() => setShowId(id), 500); },
+        onTouchEnd: () => { clearTimer(); setShowId(null); },
+        onTouchCancel: () => { clearTimer(); setShowId(null); },
+        onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
+    });
+
     return (
         <div className="ios-container" style={{ backgroundImage: `url(${wallpaper})`, backgroundSize: 'cover', backgroundPosition: 'center', backgroundRepeat: 'no-repeat' }}>
             {/* Status Bar */}
@@ -62,10 +76,33 @@ export const IOSHomeScreen: React.FC<IOSHomeScreenProps> = ({ icons, onLaunch, w
             {/* Dock */}
             <div className="ios-dock">
                 {dockIcons.map(icon => (
-                    <div key={icon.id} className="ios-icon-container" onClick={icon.onClick} style={{ marginBottom: 0 }}>
+                    <div
+                        key={icon.id}
+                        className="ios-icon-container"
+                        onClick={icon.onClick}
+                        style={{ marginBottom: 0, position: 'relative' }}
+                        {...bindLong(icon.id)}
+                    >
                         <div className="ios-icon" style={{ background: 'rgba(255,255,255,0.2)', backdropFilter: 'blur(10px)' }}>
                             {icon.icon}
                         </div>
+                        {showId === icon.id && (
+                            <div style={{
+                                position: 'absolute',
+                                bottom: 64,
+                                left: '50%',
+                                transform: 'translateX(-50%)',
+                                background: 'rgba(0,0,0,0.8)',
+                                color: '#fff',
+                                padding: '4px 8px',
+                                borderRadius: 6,
+                                fontSize: 12,
+                                whiteSpace: 'nowrap',
+                                pointerEvents: 'none'
+                            }}>
+                                {icon.name}
+                            </div>
+                        )}
                     </div>
                 ))}
             </div>

@@ -126,6 +126,9 @@
   padding: 0 16px;
   background: var(--bg-primary);
   gap: 12px;
+  position: sticky;
+  top: 0;
+  z-index: 5;
 }
 
 .breadcrumb {
@@ -370,6 +373,14 @@
 /* Mobile Responsive */
 .mobileContainer {
   flex-direction: column;
+}
+
+.mobileContainer .mainContent {
+  overflow-y: auto;
+}
+
+.mobileContainer .scrollArea {
+  overflow: visible;
 }
 
 .mobileSearchInputBox {

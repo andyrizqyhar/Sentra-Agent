@@ -11,10 +11,11 @@ import { LoginScreen } from './components/LoginScreen';
 import { IOSHomeScreen } from './components/IOSHomeScreen';
 import { IOSEditor } from './components/IOSEditor';
 import { getIconForType, getDisplayName } from './utils/icons';
-import { IoCubeOutline, IoTerminalOutline, IoRocket, IoBuild, IoChatbubbleEllipses, IoChevronBack } from 'react-icons/io5';
+import { IoCubeOutline, IoTerminalOutline, IoRocket, IoBuild, IoChatbubbleEllipses, IoChevronBack, IoRefresh } from 'react-icons/io5';
 import { FaTools } from 'react-icons/fa';
 import { ToastContainer, ToastMessage } from './components/Toast';
 import { Dialog } from './components/Dialog';
+import { UpdateDialog, UpdateOptions } from './components/UpdateDialog';
 import { Menu, Item, Submenu, useContextMenu } from 'react-contexify';
 import { useDevice } from './hooks/useDevice';
 import 'react-contexify/dist/ReactContexify.css';
@@ -174,6 +175,19 @@ function App() {
     return (localStorage.getItem('sentra_theme') as 'light' | 'dark') || 'dark';
   });
 
+  // Desktop Dock visibility
+  const [showDock, setShowDock] = useState<boolean>(() => {
+    const saved = localStorage.getItem('sentra_show_dock');
+    return saved ? saved === 'true' : true;
+  });
+  const toggleDock = () => {
+    setShowDock(prev => {
+      const next = !prev;
+      localStorage.setItem('sentra_show_dock', String(next));
+      return next;
+    });
+  };
+
   // Dialog state
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dialogConfig, setDialogConfig] = useState({
@@ -205,6 +219,8 @@ function App() {
   // Terminal windows state
   const [terminalWindows, setTerminalWindows] = useState<TerminalWin[]>([]);
   const [activeTerminalId, setActiveTerminalId] = useState<string | null>(null);
+
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false);
 
   // iOS editor windows state
   type IOSEditorWin = {
@@ -364,6 +380,8 @@ function App() {
     }
   };
 
+  
+
   const handleCloseTerminal = async (id: string) => {
     const terminal = terminalWindows.find(t => t.id === id);
     if (terminal) {
@@ -472,6 +490,50 @@ function App() {
     setActiveTerminalId(id);
   };
 
+  // Update handlers
+  const handleOpenUpdate = () => {
+    setUpdateDialogOpen(true);
+  };
+
+  const handleSubmitUpdate = async (opts: UpdateOptions) => {
+    setUpdateDialogOpen(false);
+    const existing = terminalWindows.find(t => t.appKey === 'update');
+    if (existing) {
+      if (existing.minimized) {
+        setTerminalWindows(prev => prev.map(t => t.id === existing.id ? { ...t, minimized: false } : t));
+      }
+      bringTerminalToFront(existing.id);
+      return;
+    }
+    try {
+      const args = ['--mode', opts.mode, '--scope', opts.scope, '--install', opts.install, '--pm', opts.pm];
+      const response = await fetch('/api/scripts/update', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ args })
+      });
+      const data = await response.json();
+
+      if (data.success && data.processId) {
+        const id = `terminal-${Date.now()}`;
+        const terminal: TerminalWin = {
+          id,
+          title: 'Update Script',
+          processId: data.processId,
+          appKey: 'update',
+          pos: { x: window.innerWidth / 2 - 350, y: window.innerHeight / 2 - 250 },
+          z: zNext + 1,
+          minimized: false,
+        };
+        setTerminalWindows(prev => [...prev, terminal]);
+        setZNext(z => z + 1);
+        setActiveTerminalId(id);
+      }
+    } catch (error) {
+      addToast('error', 'Failed to run update script', error instanceof Error ? error.message : undefined);
+    }
+  };
+
   // Desktop icons
   const withUsage = <F extends (...args: any[]) => any>(key: string, fn: F) => () => { recordUsage(key); return fn(); };
 
@@ -547,6 +609,24 @@ function App() {
       </div>,
       position: { x: 20, y: 380 },
       onClick: withUsage('desktop:napcat-start', handleRunNapcatStart),
+    },
+    {
+      id: 'update',
+      name: '自动更新',
+      icon: <div style={{
+        width: 54,
+        height: 54,
+        background: 'linear-gradient(135deg, #FF9500, #FF7A00)',
+        borderRadius: 12,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        boxShadow: '0 4px 12px rgba(255, 149, 0, 0.3)'
+      }}>
+        <IoRefresh size={28} color="white" />
+      </div>,
+      position: { x: 20, y: 480 },
+      onClick: withUsage('desktop:update', handleOpenUpdate),
     },
   ];
 
@@ -913,6 +993,7 @@ function App() {
     const selected = (topByUsage[0]?.count ? pick(topByUsage, 3) : fallback.slice(0, 3));
     const iosDockExtra = selected.map(it => ({
       id: `${it.type}-${it.name}`,
+      name: getDisplayName(it.name),
       icon: getIconForType(it.name, it.type),
       onClick: () => { recordUsage(`${it.type}:${it.name}`); handleIOSOpenWindow(it); }
     }));
@@ -977,6 +1058,13 @@ function App() {
             </div>
           ))}
 
+        {/* Update Dialog on Mobile */}
+        <UpdateDialog
+          isOpen={updateDialogOpen}
+          onClose={() => setUpdateDialogOpen(false)}
+          onSubmit={handleSubmitUpdate}
+        />
+
         <ToastContainer toasts={toasts} removeToast={removeToast} />
       </>
     );
@@ -1012,6 +1100,7 @@ function App() {
           {
             label: '视图',
             items: [
+              { label: showDock ? '隐藏常用应用 Dock' : '显示常用应用 Dock', onClick: () => toggleDock() },
               { label: '最小化所有', onClick: () => setOpenWindows(ws => ws.map(w => ({ ...w, minimized: true }))) },
               { label: '恢复所有', onClick: () => setOpenWindows(ws => ws.map(w => ({ ...w, minimized: false }))) },
               {
@@ -1035,6 +1124,8 @@ function App() {
         setBrightness={setBrightness}
         theme={theme}
         onToggleTheme={toggleTheme}
+        showDock={showDock}
+        onToggleDock={toggleDock}
       />
 
       {openWindows.map(w => (
@@ -1155,7 +1246,7 @@ function App() {
         }))}
       />
 
-      <Dock items={uniqueDockItems} />
+      {showDock && <Dock items={uniqueDockItems} />}
 
       <ToastContainer toasts={toasts} removeToast={removeToast} />
 
@@ -1167,6 +1258,12 @@ function App() {
         onCancel={() => setDialogOpen(false)}
         type={dialogConfig.type}
         confirmText="删除"
+      />
+
+      <UpdateDialog
+        isOpen={updateDialogOpen}
+        onClose={() => setUpdateDialogOpen(false)}
+        onSubmit={handleSubmitUpdate}
       />
 
       <Menu id="desktop-menu" theme="light" animation="scale">

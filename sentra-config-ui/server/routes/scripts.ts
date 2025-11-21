@@ -53,6 +53,23 @@ export async function scriptRoutes(fastify: FastifyInstance) {
         }
     });
 
+    // Execute update script
+    fastify.post<{
+        Body: { args?: string[] };
+    }>('/api/scripts/update', async (request, reply) => {
+        try {
+            const { args = [] } = request.body || {};
+            const processId = scriptRunner.executeScript('update', args);
+
+            return { success: true, processId };
+        } catch (error) {
+            reply.code(500).send({
+                error: 'Failed to execute update script',
+                message: error instanceof Error ? error.message : String(error),
+            });
+        }
+    });
+
     // Get script status
     fastify.get<{
         Params: { id: string };

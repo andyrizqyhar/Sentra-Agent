@@ -14,13 +14,15 @@
     flex: 1;
     padding: 12px;
     overflow-y: auto;
-    overflow-x: hidden;
-    font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+    overflow-x: auto;
+    font-family: 'Cascadia Mono', 'Consolas', 'Fira Code', 'JetBrains Mono', 'Noto Sans Mono', 'Noto Sans Symbols 2', 'Menlo', 'Monaco', 'Courier New', monospace;
     font-size: 13px;
     line-height: 1.4;
     color: #fff;
-    white-space: pre-wrap;
-    word-break: break-all;
+    white-space: pre; /* keep box-drawing alignment */
+    word-break: normal;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
     touch-action: pan-y;
     overscroll-behavior: contain;
 }
@@ -68,4 +70,43 @@
 
 .terminal::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.3);
+}
+
+/* Header styles for nicer look */
+.header {
+    padding: 6px 10px;
+    background: linear-gradient(180deg, #2a2a2a, #212121);
+    color: #bdbdbd;
+    font-size: 11px;
+    border-bottom: 1px solid #3a3a3a;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.status {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    border-radius: 999px;
+    font-size: 10px;
+    line-height: 1;
+}
+
+.running {
+    background: rgba(46, 204, 113, 0.15);
+    color: #2ecc71;
+    border: 1px solid rgba(46, 204, 113, 0.4);
+}
+
+.exited {
+    background: rgba(255, 99, 71, 0.15);
+    color: #ff6b6b;
+    border: 1px solid rgba(255, 99, 71, 0.4);
 }

@@ -42,7 +42,7 @@ export const IOSEditor: React.FC<IOSEditorProps> = ({
                     <IoClose size={24} />
                 </div>
             </div>
-            <div style={{ flex: 1, overflow: 'auto', background: '#1c1c1e' }}>
+            <div style={{ flex: 1, overflow: 'hidden', background: '#1c1c1e' }}>
                 <EnvEditor
                     appName={appName}
                     vars={vars}
